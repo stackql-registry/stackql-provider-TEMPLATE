@@ -1,0 +1,143 @@
+id: digitalocean
+name: digitalocean
+version: v00.00.00000
+providerServices:
+  account:
+    id: account:v00.00.00000
+    name: account
+    preferred: true
+    service:
+      $ref: digitalocean/v00.00.00000/services/account.yaml
+    title: account API
+    version: v00.00.00000
+    description: digitalocean API
+  apps:
+    id: apps:v00.00.00000
+    name: apps
+    preferred: true
+    service:
+      $ref: digitalocean/v00.00.00000/services/apps.yaml
+    title: apps API
+    version: v00.00.00000
+    description: digitalocean API
+  billing:
+    id: billing:v00.00.00000
+    name: billing
+    preferred: true
+    service:
+      $ref: digitalocean/v00.00.00000/services/billing.yaml
+    title: billing API
+    version: v00.00.00000
+    description: digitalocean API
+  compute:
+    id: compute:v00.00.00000
+    name: compute
+    preferred: true
+    service:
+      $ref: digitalocean/v00.00.00000/services/compute.yaml
+    title: compute API
+    version: v00.00.00000
+    description: digitalocean API
+  container_registry:
+    id: container_registry:v00.00.00000
+    name: container_registry
+    preferred: true
+    service:
+      $ref: digitalocean/v00.00.00000/services/container_registry.yaml
+    title: container_registry API
+    version: v00.00.00000
+    description: digitalocean API
+  databases:
+    id: databases:v00.00.00000
+    name: databases
+    preferred: true
+    service:
+      $ref: digitalocean/v00.00.00000/services/databases.yaml
+    title: databases API
+    version: v00.00.00000
+    description: digitalocean API
+  genai:
+    id: genai:v00.00.00000
+    name: genai
+    preferred: true
+    service:
+      $ref: digitalocean/v00.00.00000/services/genai.yaml
+    title: genai API
+    version: v00.00.00000
+    description: digitalocean API
+  kubernetes:
+    id: kubernetes:v00.00.00000
+    name: kubernetes
+    preferred: true
+    service:
+      $ref: digitalocean/v00.00.00000/services/kubernetes.yaml
+    title: kubernetes API
+    version: v00.00.00000
+    description: digitalocean API
+  monitoring:
+    id: monitoring:v00.00.00000
+    name: monitoring
+    preferred: true
+    service:
+      $ref: digitalocean/v00.00.00000/services/monitoring.yaml
+    title: monitoring API
+    version: v00.00.00000
+    description: digitalocean API
+  network:
+    id: network:v00.00.00000
+    name: network
+    preferred: true
+    service:
+      $ref: digitalocean/v00.00.00000/services/network.yaml
+    title: network API
+    version: v00.00.00000
+    description: digitalocean API
+  oneclick:
+    id: oneclick:v00.00.00000
+    name: oneclick
+    preferred: true
+    service:
+      $ref: digitalocean/v00.00.00000/services/oneclick.yaml
+    title: oneclick API
+    version: v00.00.00000
+    description: digitalocean API
+  projects:
+    id: projects:v00.00.00000
+    name: projects
+    preferred: true
+    service:
+      $ref: digitalocean/v00.00.00000/services/projects.yaml
+    title: projects API
+    version: v00.00.00000
+    description: digitalocean API
+  serverless:
+    id: serverless:v00.00.00000
+    name: serverless
+    preferred: true
+    service:
+      $ref: digitalocean/v00.00.00000/services/serverless.yaml
+    title: serverless API
+    version: v00.00.00000
+    description: digitalocean API
+  spaces:
+    id: spaces:v00.00.00000
+    name: spaces
+    preferred: true
+    service:
+      $ref: digitalocean/v00.00.00000/services/spaces.yaml
+    title: spaces API
+    version: v00.00.00000
+    description: digitalocean API
+  vpcs:
+    id: vpcs:v00.00.00000
+    name: vpcs
+    preferred: true
+    service:
+      $ref: digitalocean/v00.00.00000/services/vpcs.yaml
+    title: vpcs API
+    version: v00.00.00000
+    description: digitalocean API
+config:
+  auth:
+    credentialsenvvar: DIGITALOCEAN_TOKEN
+    type: bearer
