@@ -1,19 +1,19 @@
 ---
-title: digitalocean
+title: REPLACEME
 hide_title: false
 hide_table_of_contents: false
 keywords:
-  - digitalocean
+  - REPLACEME
   - stackql
   - infrastructure-as-code
   - configuration-as-data
   - cloud inventory
-description: Query, deploy and manage DigitalOcean resources using SQL
+description: Query, deploy and manage REPLACEME resources using SQL
 custom_edit_url: null
-image: /img/stackql-digitalocean-provider-featured-image.png
+image: /img/stackql-REPLACEME-provider-featured-image.png
 id: 'provider-intro'
 ---
 
 import CopyableCode from '@site/src/components/CopyableCode/CopyableCode';
 
-DigitalOcean for managing cloud servers, databases, networking, and storage in a simplified, developer-friendly environment.
+REPLACEME with description for the provider.
