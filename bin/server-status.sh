@@ -57,9 +57,9 @@ else
   echo "Testing connection..."
   if command -v psql &> /dev/null; then
     if PGPASSWORD=stackql psql -h localhost -p ${PORT} -U stackql -d stackql -c "SELECT 1 as test" &> /dev/null; then
-      echo "✅ Server is accepting connections"
+      echo "OK: server is accepting connections"
     else
-      echo "❌ Could not connect to server"
+      echo "FAILED: could not connect to server"
     fi
   else
     echo "Note: Install psql client to test connection"

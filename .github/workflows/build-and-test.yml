@@ -1,0 +1,165 @@
+name: build-and-test
+
+# Build the myprovider provider from the pinned spec and run every
+# credential-free test layer on each push / PR; the live smoke suite runs
+# only where the secrets are configured; a scheduled spec-drift job diffs the
+# served spec against the pin and opens an issue when it moves (drift is
+# expected and must be reviewed, never silent).
+#
+# TODO(template): set the secret names to the variables the provider reads.
+
+on:
+  push:
+    branches: [main, 'feature/**']
+    paths-ignore: ['website/**']
+  pull_request:
+    branches: [main]
+    paths-ignore: ['website/**']
+  schedule:
+    - cron: '17 3 * * 1'   # weekly spec-drift check (Monday 03:17 UTC)
+  workflow_dispatch:
+
+jobs:
+  build-and-test:
+    if: github.event_name != 'schedule'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 20
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      # puts the latest stackql on PATH; bin/start-server.sh and the test
+      # runners resolve it from there
+      - name: Install stackql
+        uses: stackql/setup-stackql@v2
+
+      - name: stackql version
+        run: stackql --version
+
+      # Drift is reported, not fatal, here: the committed pin is what gets
+      # built and tested. The spec-drift job below opens the review issue.
+      - name: Verify the pinned spec against upstream (warns on drift)
+        run: |
+          if ! make fetch-spec; then
+            echo "::warning title=Spec drift::The served spec no longer matches provider-dev/config/spec_pin.json - run 'make refresh-spec && make build && make test' and review the diff. Building from the committed pin."
+          fi
+
+      - name: Build provider from the pinned spec
+        run: make inventory split mappings pre-normalize normalize generate
+
+      - name: Fail on uncommitted generation drift
+        run: |
+          git add -N .
+          if ! git diff --quiet -- provider-dev/openapi provider-dev/config provider-dev/source; then
+            echo "Generated output differs from the committed artifacts - run 'make build' and commit."
+            git diff --stat -- provider-dev/openapi provider-dev/config provider-dev/source
+            exit 1
+          fi
+
+      - name: Offline validation
+        run: make test-offline
+
+      - name: Integration tests (mock API)
+        run: make test-integration
+
+      - name: Meta-route tests
+        run: make test-meta
+
+      - name: Generate docs (sanity - the site build runs on the web workflows)
+        run: make docs
+
+  smoke:
+    # secret-gated live smoke suite against the dedicated dev account;
+    # skipped with a notice when the secrets are not configured (forks, PRs
+    # from outside). Never the expensive gated lifecycle - trigger that
+    # deliberately with `make smoke-gated-lifecycle`.
+    runs-on: ubuntu-latest
+    needs: build-and-test
+    if: github.event_name != 'pull_request' && github.event_name != 'schedule'
+    env:
+      MYPROVIDER_API_TOKEN: ${{ secrets.MYPROVIDER_API_TOKEN }}
+      MYPROVIDER_ORG_ID: ${{ secrets.MYPROVIDER_ORG_ID }}
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 20
+          cache: npm
+
+      - uses: actions/setup-python@v7
+        with:
+          python-version: '3.12'
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Live smoke suite
+        if: env.MYPROVIDER_API_TOKEN != ''
+        run: make smoke
+
+      - name: Live smoke skipped (no credentials)
+        if: env.MYPROVIDER_API_TOKEN == ''
+        run: |
+          echo "::notice title=Live smoke suite skipped::MYPROVIDER_API_TOKEN secrets are not configured - the live smoke suite did not run. Credential-free coverage still ran via the mock-server integration suite."
+
+  spec-drift:
+    # Diff the served spec against the pin on a schedule and on demand, and
+    # open a labelled issue when it moves.
+    runs-on: ubuntu-latest
+    if: github.event_name == 'schedule' || github.event_name == 'workflow_dispatch'
+    permissions:
+      contents: read
+      issues: write
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 20
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Fetch and compare against the pin
+        id: drift
+        run: |
+          set +e
+          make fetch-spec > fetch.log 2>&1
+          rc=$?
+          set -e
+          cat fetch.log
+          if [ "$rc" -eq 0 ]; then
+            echo "drift=false" >> "$GITHUB_OUTPUT"
+          else
+            echo "drift=true" >> "$GITHUB_OUTPUT"
+            # materialise the diff for the issue body (refresh into the working tree only)
+            npm run fetch-spec -- --update > /dev/null 2>&1 || true
+            git diff --stat -- provider-dev/downloaded provider-dev/config/spec_pin.json > drift.txt || true
+            cat drift.txt
+          fi
+
+      - name: Report drift
+        if: steps.drift.outputs.drift == 'true'
+        uses: actions/github-script@v9
+        with:
+          script: |
+            const fs = require('fs');
+            const stat = fs.existsSync('drift.txt') ? fs.readFileSync('drift.txt', 'utf8') : '(diff unavailable)';
+            const title = 'Upstream spec drift detected';
+            const body = 'The upstream spec no longer matches the pin in provider-dev/config/spec_pin.json.\n\n```\n' + stat + '\n```\nRun `make refresh-spec && make build && make test`, review the generated diff (new operations, changed schemas, vendor labelling, the all_services.csv diff), update NOTES.md, and commit.';
+            await core.summary.addHeading(title).addCodeBlock(stat).write();
+            const { data: issues } = await github.rest.issues.listForRepo({
+              owner: context.repo.owner, repo: context.repo.repo, state: 'open', labels: 'spec-drift'
+            });
+            if (issues.some(i => i.title === title)) return;
+            await github.rest.issues.create({
+              owner: context.repo.owner, repo: context.repo.repo, title, body, labels: ['spec-drift']
+            });

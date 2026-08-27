@@ -1,0 +1,4 @@
+{
+  "description": "Service split for the myprovider provider. Ordered path rules (JavaScript regex against the full path key), first match wins; every operation path must match a rule or bin/split.mjs and build_inventory.mjs fail without writing. Aim for 8-20 services named for what a user would look for (projects, config, network, secrets, ...), not the vendor's controller names. A rule with \"excluded\": true classifies the path for the inventory but the service is never emitted (use it for a service whose every operation is skip-coded).",
+  "rules": []
+}

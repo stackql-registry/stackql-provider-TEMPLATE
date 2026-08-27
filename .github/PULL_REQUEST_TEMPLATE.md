@@ -7,7 +7,7 @@ Please include a summary of the changes and the related issue(s). Please also in
 Please make sure that the following criteria are met:
 
 - [ ] The PR title is descriptive.
-- [ ] I have ⭐'ed the [stackql](https://github.com/stackql/stackql) and this repo.
+- [ ] I have starred the [stackql](https://github.com/stackql/stackql) repo and this repo.
 
 ## Additional Notes
 

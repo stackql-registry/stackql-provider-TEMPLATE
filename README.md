@@ -1,291 +1,176 @@
-# StackQL Provider Template
+# StackQL provider template
 
-This repository serves as a template for developing StackQL providers. It provides a structured workflow and tools to generate, test, and document StackQL providers for various cloud services and APIs.
+A template repository for building a [StackQL](https://github.com/stackql/stackql) provider to the current standard: a deterministic `make` pipeline from a pinned upstream spec to a generated provider, every any-sdk primitive available where the API warrants it (snake_case surface, request and response transforms, pagination, query-parameter pushdown, `x-stackQL-envVar` scoping, `objectKey`, lifecycle `EXEC` methods, GraphQL merge, provider views), three credential-free test layers, a budgeted live smoke suite, a Docusaurus microsite and CI.
 
-## What is StackQL?
+The procedure is the bundled Claude Code skill, [`.claude/skills/stackql-provider-development`](.claude/skills/stackql-provider-development/SKILL.md). The repository is laid out so a Claude Code session (or a person) can complete it for a given provider by working the skill's steps in order; every decision left open is marked `TODO(template)`. The skill also uplifts an existing provider repository - copy the `.claude/skills` directory there and start from its `references/uplift-checklist.md`.
 
-[StackQL](https://github.com/stackql/stackql) is an open-source SQL interface for cloud APIs that allows you to query and manipulate cloud resources using SQL-like syntax. With StackQL, you can:
+The rest of this file is the shape of the finished provider README (numbered build guide, steps 0-8, with counts that match the committed artifacts). Replace the sections as the build settles them.
 
-- Query cloud resources across multiple providers using familiar SQL syntax
-- Join data from different services and providers
-- Execute CRUDL operations (`SELECT`, `INSERT`, `UPDATE`, `REPLACE`, `DELETE`) on cloud resources
-- Execute lifecycle operations (like starting or stopping vms) using `EXEC`
-- Build custom dashboards and reports
-- Automate infrastructure operations using [`stackql-deploy`](https://stackql-deploy.io/)
+## Using the template
 
-## What are StackQL Providers?
+1. Create the repository from this template (GitHub "Use this template", or clone and re-init) and run `npm install`.
+2. Rewrite the placeholders: `bin/init-provider.sh <name> "<Title>" [https://api.vendor.com]` replaces `myprovider`, `My Provider`, `MYPROVIDER` and `api.example.com` across the files that carry them (`grep -rn myprovider .` afterwards should find nothing outside `.claude/`).
+3. Fill the constants in `provider-dev/scripts/lib/spec_helpers.mjs` (`SPEC_URL`, `SPEC_FILE`, `PATH_VERSION_PREFIX`, `SCOPE_PREFIX` / `ROOT_PATHS` for a scoped API, `WIRE_CASING`) and `provider-dev/config/` (`servers.json`, `provider_config.json`, `service_names.json`).
+4. Open a Claude Code session in the repository and ask it to build the provider - it picks up `CLAUDE.md` and the skill. Or work the skill's steps by hand: `make fetch-spec`, `make inventory`, add service rules, `make split`, `make mappings-report` / `make mappings`, and so on to `make all`.
+5. `grep -rn "TODO(template)" --exclude-dir=node_modules .` lists what is still open.
 
-StackQL providers are extensions that connect StackQL to specific cloud services or APIs. Each provider:
+What the template is not: a publisher. Publishing to the public registry is a separate, human-in-the-loop step (section 7).
 
-1. Defines a schema that maps API endpoints to SQL-like resources and methods
-2. Implements authentication mechanisms for the target API
-3. Translates SQL operations into API calls
-4. Transforms API responses into tabular data that can be queried with SQL
+## What is StackQL
 
-This template repository helps you build StackQL providers by converting OpenAPI specifications into StackQL-compatible provider schemas using the `@stackql/provider-utils` package.
-
-## How StackQL Providers Work
-
-StackQL providers bridge the gap between SQL queries and REST APIs:
-
-1. **Resource Mapping**: API endpoints are mapped to SQL-like tables and views
-2. **Method Mapping**: API operations are mapped to SQL verbs (`SELECT`, `INSERT`, `UPDATE`, `REPLACE`, `DELETE` and `EXEC`)
-3. **Parameter Mapping**: SQL query conditions are translated to API parameters
-4. **Response Transformation**: API responses are converted to tabular results
+[StackQL](https://github.com/stackql/stackql) is an open-source SQL interface for cloud and SaaS APIs. A provider is a versioned set of OpenAPI documents plus `x-stackQL-resources` extensions that the [any-sdk](https://github.com/stackql/any-sdk) engine turns into SQL tables: `SELECT` for reads, `INSERT` / `UPDATE` / `REPLACE` / `DELETE` for lifecycle, `EXEC` for actions, with `json_extract` over nested fields and joins across providers.
 
 ## Prerequisites
 
-To use this template for developing a StackQL provider, you'll need:
+- Node.js >= 20
+- A `stackql` binary (`$STACKQL`, `./stackql`, or on `PATH`; `bin/start-server.sh` downloads one if none is found)
+- GNU make and bash (Linux, macOS or WSL); Python 3 for the smoke suite; yarn for the website
+- For live smoke tests: a dedicated dev account for the provider (never a production account) and its credentials in `.env` (see `.env.example`)
 
-1. An OpenAPI specification for the target API
-2. Node.js and `npm` installed on your system
-3. StackQL CLI installed (see [StackQL Installation](https://stackql.io/docs/installing-stackql))
-4. API credentials for testing your provider
+## Makefile
 
-## Development Workflow
-
-### 1. Clone this Template
-
-Start by cloning this template repository and installing dependencies:
+Every step is a `make` target (`make help` lists them). The composites:
 
 ```bash
-git clone https://github.com/stackql/stackql-provider-template.git stackql-provider-myprovider
-cd stackql-provider-myprovider
-npm install
+make all      # deps, full pipeline (fetch/pin verify, inventory, split, mappings, pre-normalize,
+              # normalize, generate, post-process, GraphQL merge), offline + integration + meta-route
+              # tests, docs generation, website build - no credentials needed
+make build    # the spec -> provider pipeline only
+make test     # the three credential-free test layers
+make smoke    # live smoke suite against the dev account (sources .env if present)
 ```
 
-### 2. Download the OpenAPI Specification
+`make all` never touches a real account. The live suites are `smoke`, `smoke-live` (the published provider, post-publish verification), `smoke-read-only`, `smoke-gated-lifecycle` (the expensive create/delete, gated) and `smoke-cleanup` (sweep `stackql-smoke-*` breadcrumbs).
 
-Obtain the OpenAPI specification for your target API. You can typically find this in the API documentation or developer portal.
+## 0. Download and pin the spec
 
 ```bash
-mkdir -p provider-dev/downloaded
-curl -L https://api-url.example.com/openapi.yaml -o provider-dev/downloaded/provider-name.yaml
+make fetch-spec      # verify against the recorded pin (fails on drift)
+make refresh-spec    # accept an upstream change (rewrites the pin - review the diff)
 ```
 
-> recommended to automate this by creating a script in the `provider-dev/scripts` folder
+`bin/fetch-spec.sh` downloads the spec to a temp dir; `provider-dev/scripts/record_spec_pin.mjs` applies the deterministic fix classes (counted in the pin), validates with `@apidevtools/swagger-parser`, redacts credential-shaped example values, verifies the upstream sha256 against `provider-dev/config/spec_pin.json` and only then writes the snapshot into `provider-dev/downloaded/` (committed, so every refresh is a reviewable diff). Before accepting a refresh: `node .claude/skills/stackql-provider-development/scripts/spec_diff.mjs <pinned> <fetched>` and record the summary in `NOTES.md`.
 
-### 3. Split the OpenAPI Spec into Service Specs
+TODO(template): the pinned snapshot's title, OpenAPI version, path and operation counts, fetch date and the fix classes applied.
 
-Break down the OpenAPI specification into smaller, service-specific files:
+## 1. Endpoint inventory and service split
 
 ```bash
-npm run split -- \
-  --provider-name your-provider-name \
-  --api-doc provider-dev/downloaded/provider-name.yaml \
-  --svc-discriminator tag \
-  --output-dir provider-dev/source \
-  --overwrite \
-  --svc-name-overrides "$(cat <<EOF
-{
-  "service_tag_1": "service_name_1",
-  "service_tag_2": "service_name_2"
-  # Add more mappings as needed
-}
-EOF
-)"
+make inventory
 ```
 
-This step organizes the API endpoints into logical services based on OpenAPI tags. You can customize the service names using the `--svc-name-overrides` parameter.  
+Writes `provider-dev/config/endpoint_inventory.csv`: one row per operation with scope, path params, pagination-looking query params, request body presence / media types / bare-array flag, the update-semantics presumption, vendor labels, response shape and envelope candidates, the proposed service / resource / method / verb / objectKey and a skip reason code.
 
-`svc-discriminator` can be based upon `tags` in each operation or based upon the path for each operation.
-
-### 4. Generate Mappings
-
-Generate the mapping configuration that connects OpenAPI operations to StackQL resources:
+The service split is the ordered path rules in `provider-dev/config/service_names.json` (first match wins; an unmatched path fails the build; `"excluded": true` classifies a service whose every operation is skip-coded without emitting it). Then:
 
 ```bash
-npm run generate-mappings -- \
-  --provider-name your-provider-name \
-  --input-dir provider-dev/source \
-  --output-dir provider-dev/config
+make split
 ```
 
-This creates a CSV mapping file that you'll need to edit to define how OpenAPI operations translate to StackQL resources, methods, and SQL verbs.
+writes `provider-dev/source/<service>.yaml` (committed build artifacts), rebased onto the scoped server template in `provider-dev/config/servers.json` when `SCOPE_PREFIX` is set.
 
-### 5. Edit the Mapping File
+TODO(template): the inventory counts (operations, mapped, skipped by reason code, labelled) and the service table (service -> resources).
 
-Edit the generated `provider-dev/config/all_services.csv` file to add:
-- `stackql_resource_name`: The name of the StackQL resource (table/view)
-- `stackql_method_name`: The name of the StackQL method
-- `stackql_verb`: The SQL verb (`SELECT`, `INSERT`, `UPDATE`, `REPLACE`, `DELETE`, `EXEC`)
-
-For example:
-```csv
-service,operationId,summary,stackql_resource_name,stackql_method_name,stackql_verb
-compute,listDroplets,List all Droplets,droplets,list,SELECT
-compute,createDroplet,Create a new Droplet,droplets,insert,INSERT
-compute,getDroplet,Retrieve an existing Droplet,droplets,get,SELECT
-compute,deleteDroplet,Delete a Droplet,droplets,delete,DELETE
-```
-
-### 6. Generate the Provider
-
-Transform the OpenAPI service specs into a StackQL provider:
+## 2. Mappings
 
 ```bash
-npm run generate-provider -- \
-  --provider-name your-provider-name \
-  --input-dir provider-dev/source \
-  --output-dir provider-dev/openapi/src/your-provider-name \
-  --config-path provider-dev/config/all_services.csv \
-  --servers '[{"url": "https://api.example.com/v1"}]' \
-  --provider-config '{"auth": {"credentialsenvvar": "PROVIDER_API_KEY","type": "header", "headerName": "Authorization"}}' \
-  --overwrite
+make mappings-report   # print every derived mapping without writing
+make mappings          # regenerate all_services.csv from scratch and apply the rules
 ```
 
-Make any necessary post-processing updates to the generated files, for example:
+`provider-dev/scripts/map_operations.mjs` fills `stackql_resource_name`, `stackql_method_name`, `stackql_verb` and `stackql_object_key` from the mechanical derivation plus `RESOURCE_RULES` / `METHOD_RULES`, and validates: every row mapped or skipped with a reason, every spec operation present, `(service, resource, method)` unique, unique required-parameter signatures per `(resource, sqlVerb)`. Fails without writing on any violation.
+
+`provider-dev/config/all_services.csv` is the committed contract of every operation -> resource.method mapping; a diff on regeneration is a breaking-change review.
+
+| Operation pattern | StackQL verb | Resource / method |
+|---|---|---|
+| GET collection | `SELECT` | `<resource>.list` (objectKey from the envelope) |
+| GET single | `SELECT` | `<resource>.get` |
+| POST create | `INSERT` | `<resource>.create` |
+| PATCH / PUT | `UPDATE` | `<resource>.update` |
+| DELETE | `DELETE` | `<resource>.delete` |
+| PATCH / PUT action segment | `EXEC` | `<parent>.update_<segment>` |
+| POST action segment | `EXEC` | `<parent>.<segment>` |
+| POST read (search / query) | `SELECT` | `<resource>.list` (objectKey in post-process) |
+
+## 3. Normalize
 
 ```bash
-node provider-dev/scripts/flatten_allOf.cjs
-sh provider-dev/scripts/fix_broken_links.sh
+make pre-normalize   # provider-specific passes in provider-dev/scripts/pre_normalize.mjs
+make normalize       # provider-utils: allOf flatten, oneOf/anyOf lowering, bare-array wrap
 ```
 
-> this will vary by provider and may not be necessary in many cases
-
-### 7. Test the Provider
-
-#### Start the StackQL Server
+## 4. Generate
 
 ```bash
-PROVIDER_REGISTRY_ROOT_DIR="$(pwd)/provider-dev/openapi"
-npm run start-server -- --provider your-provider-name --registry $PROVIDER_REGISTRY_ROOT_DIR
+make generate        # rm output, generate (servers, auth, naive bodies, views), post-process, GraphQL merge
 ```
 
-#### Test Metadata Routes
+Output: `provider-dev/openapi/src/<name>/v00.00.00000/provider.yaml` + `services/*.yaml` (committed). `provider-dev/scripts/post_process.mjs` re-applies everything the generator cannot express as numbered rules (root-path server overrides, `nativeCasing`, DELETE-body translation, objectKeys on POST reads, pagination, transforms, pushdown, aliases). GraphQL fragments in `provider-dev/source-graphql/` and views in `views/<service>/views.yaml` are merged here.
+
+## 5. Test
 
 ```bash
-npm run test-meta-routes -- your-provider-name --verbose
+make test-offline        # SHOW / DESCRIBE against the local file registry
+make test-integration    # mock API, row-level and wire-level assertions
+make test-meta           # meta-route walk over a local stackql server
+make smoke               # live (needs .env)
 ```
 
-#### Run Test Queries
+`npm run probe -- "SELECT ..."` runs ad-hoc SQL against the mock and prints the wire calls.
+
+TODO(template): the smoke suite's design (which Terraform examples it mirrors), its budget, and the gated lifecycle.
+
+## 6. Docs
 
 ```bash
-PROVIDER_REGISTRY_ROOT_DIR="$(pwd)/provider-dev/openapi"
-REG_STR='{"url": "file://'${PROVIDER_REGISTRY_ROOT_DIR}'", "localDocRoot": "'${PROVIDER_REGISTRY_ROOT_DIR}'", "verifyConfig": {"nopVerify": true}}'
-./stackql shell --registry="${REG_STR}"
+make docs        # generate website/docs (snake_case surface) and sanitize for MDX
+make website     # yarn install && yarn build (vendors the shared stackql/docusaurus-config)
+make website-start
 ```
 
-Example test query:
+`provider-dev/docgen/provider-data/headerContent1.txt` is the landing-page front matter and pitch; `headerContent2.txt` is the getting-started page (installation, scope, authentication, the scoping variable, rate limit, labelling, example queries - lead with the queries the provider exists for). `website/provider.js` carries the site identity; `website/static/CNAME` the hostname; add `website/static/img/stackql-<name>-provider-featured-image.png`. Commit `website/docs` after every regeneration.
+
+To publish the site: rename `.github/workflows/prod-web-deploy.yml.disabled` and `test-web-deploy.yml.disabled`, enable GitHub Pages (source: GitHub Actions) and add the DNS record:
+
+| Source domain | Record type | Target |
+|---|---|---|
+| `<name>-provider.stackql.io` | CNAME | `stackql.github.io.` |
+
+## 7. Publish
+
+Push the generated `provider-dev/openapi/src/<name>` directory to `providers/src` in a feature branch of [stackql-provider-registry](https://github.com/stackql/stackql-provider-registry) and follow the [registry release flow](https://github.com/stackql/stackql-provider-registry/blob/dev/docs/build-and-deployment.md). Verify from the dev registry, then `make smoke-live`:
+
+```bash
+export DEV_REG='{ "url": "https://registry-dev.stackql.app/providers" }'
+stackql --registry="${DEV_REG}" shell
+```
+
 ```sql
-SELECT * FROM your-provider-name.service_name.resource_name LIMIT 10;
+REGISTRY PULL myprovider;
 ```
 
-When you're done testing, stop the StackQL server:
-```bash
-npm run stop-server
-```
+## 8. CI
 
-### 8. Publish the Provider
+`.github/workflows/build-and-test.yml`: on push / PR - `npm ci`, `stackql/setup-stackql`, pin verification (warns on drift), the build steps, a hard failure on uncommitted generation drift, the three credential-free test layers, docs generation; a secret-gated live smoke job (skipped with a notice otherwise; never the gated lifecycle); a weekly `spec-drift` job that fetches, compares with the pin and opens a labelled issue. The web deploy workflows build the site from `main` once enabled.
 
-To publish your provider:
+## Authentication reference
 
-1. Fork the [stackql-provider-registry](https://github.com/stackql/stackql-provider-registry) repository
-2. Copy your provider directory to `providers/src` in a feature branch
-3. Follow the [registry release flow](https://github.com/stackql/stackql-provider-registry/blob/dev/docs/build-and-deployment.md)
+`provider-dev/config/provider_config.json` becomes `config:` in `provider.yaml`. Env var names follow the vendor's Terraform provider (unless it only offers `TF_VAR_*` names, then the vendor CLI's). The common `auth.type` values (the full table is in the skill's `scoping-and-auth.md`):
 
-Test your published provider in the `dev` registry:
-```bash
-export DEV_REG="{ \"url\": \"https://registry-dev.stackql.app/providers\" }"
-./stackql --registry="${DEV_REG}" shell
-```
-
-Pull and verify your provider:
-```sql
-registry pull your-provider-name;
--- Run test queries
-```
-
-### 9. Generate Documentation
-
-Provider doc microsites are built using Docusaurus and published using GitHub Pages.  To genarate and publish comprehensive user docs for your provider, do the following:  
-
-a. Upodate `headerContent1.txt` and `headerContent2.txt` accordingly in `provider-dev/docgen/provider-data/`  
-
-b. Update the following in `website/docusaurus.config.js`:  
-
-```js
-// Provider configuration - change these for different providers
-const providerName = "yourprovidername";
-const providerTitle = "Your Provider Title";
-```
-
-c. Then generate docs using...
-
-```bash
-npm run generate-docs -- \
-  --provider-name your-provider-name \
-  --provider-dir ./provider-dev/openapi/src/your-provider-name/v00.00.00000 \
-  --output-dir ./website \
-  --provider-data-dir ./provider-dev/docgen/provider-data
-```  
-
-d. Test the documentation locally:
-```bash
-cd website
-yarn build
-yarn start
-```
-
-### 10. Publish Documentation
-
-Remove the `.disabled` extension from `.github/workflows/test-web-deploy.yml.disabled` and `.github/workflows/prod-web-deploy.yml.disabled`  
-
-Set up GitHub Pages in your repository settings, and configure DNS if needed:
-
-| Source Domain | Record Type | Target |
-|---------------|-------------|--------|
-| your-provider-name-provider.stackql.io | CNAME | stackql.github.io. |
-
-## Authentication Configuration
-
-Different APIs require different authentication methods. Here are common authentication configurations:
-
-### API Key in Header
 ```json
-{
-  "auth": {
-    "credentialsenvvar": "PROVIDER_API_KEY",
-    "type": "header",
-    "headerName": "X-API-Key"
-  }
-}
+{"auth": {"type": "bearer", "credentialsenvvar": "VENDOR_TOKEN"}}
+{"auth": {"type": "api_key", "credentialsenvvar": "VENDOR_API_KEY", "valuePrefix": "SSWS "}}
+{"auth": {"type": "basic", "username_var": "VENDOR_KEY_ID", "password_var": "VENDOR_KEY_SECRET"}}
+{"auth": {"type": "custom", "location": "header", "name": "X-API-Key", "credentialsenvvar": "VENDOR_API_KEY"}}
+{"auth": {"type": "oauth2", "grant_type": "client_credentials", "client_id_env_var": "VENDOR_CLIENT_ID", "client_secret_env_var": "VENDOR_CLIENT_SECRET", "token_url": "https://auth.vendor.com/oauth/token"}}
 ```
 
-### Bearer Token
-```json
-{
-  "auth": {
-    "credentialsenvvar": "PROVIDER_TOKEN",
-    "type": "bearer"
-  }
-}
-```
-
-### Basic Authentication
-```json
-{
-  "auth": {
-    "credentialsenvvar": "PROVIDER_BASIC_AUTH",
-    "type": "basic"
-  }
-}
-```
-
-### OAuth (Client Credentials Flow)
-```json
-{
-  "auth": {
-    "credentialsenvvar": "PROVIDER_OAUTH_CONFIG",
-    "type": "oauth-client-credentials",
-    "tokenUrl": "https://auth.example.com/token"
-  }
-}
-```
+A user can override at runtime with `stackql --auth='{"<provider>": {...}}'`.
 
 ## Contributing
 
-Contributions are welcome! Please feel free to submit a Pull Request.
+Contributions are welcome - rules in scripts, `make build && make test`, then a pull request.
 
 ## License
 

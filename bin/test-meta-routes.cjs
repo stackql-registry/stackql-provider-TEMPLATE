@@ -11,7 +11,9 @@ const baseDir = path.resolve(path.dirname(process.argv[1]), '..');
 const defaultOptions = {
   user: 'stackql',
   database: 'stackql',
-  host: 'localhost',
+  // IPv4 loopback, not 'localhost': stackql srv binds 0.0.0.0 and Node
+  // resolves 'localhost' to ::1 first, which refuses the connection
+  host: '127.0.0.1',
   port: 5444,
   debug: false,
 };
@@ -20,6 +22,7 @@ const defaultOptions = {
 const args = process.argv.slice(2);
 let provider = null;
 let port = 5444;
+let host = '127.0.0.1';
 let verbose = false;
 let outputFormat = 'json';
 let timeoutMs = 60000; // Default timeout: 60 seconds
@@ -29,6 +32,9 @@ for (let i = 0; i < args.length; i++) {
     switch (args[i]) {
       case '--port':
         port = parseInt(args[++i], 10);
+        break;
+      case '--host':
+        host = args[++i];
         break;
       case '--verbose':
         verbose = true;
@@ -80,6 +86,7 @@ if (!provider) {
 // Set up connection options
 const connectionOptions = {
   ...defaultOptions,
+  host,
   port,
   // Set query timeout
   statement_timeout: timeoutMs,
@@ -87,6 +94,13 @@ const connectionOptions = {
 
 // Get start time
 const startTime = new Date();
+
+// resources whose select response is a scalar (text) body - a single
+// anonymous column at query time, so DESCRIBE EXTENDED is legitimately
+// empty. Keep it empty unless a resource genuinely returns a scalar; a
+// response transform in post_process.mjs that yields real columns is the
+// better fix.
+const SCALAR_RESPONSE_RESOURCES = new Set([]);
 
 const results = {
   provider,
@@ -96,6 +110,10 @@ const results = {
   selectableMethods: 0,
   nonSelectableResourceCount: 0,
   nonSelectableResources: [],
+  scalarResponseResources: [],
+  failures: [],
+  errors: [],
+  summary: { errors: 0 },
 };
 
 /**
@@ -116,9 +134,9 @@ async function executeQuery(query, description) {
     
     if (!verbose) {
       if (result.data && result.data.length) {
-        console.log(`✅ (${result.data.length} rows)`);
+        console.log(`OK (${result.data.length} rows)`);
       } else {
-        console.log('✅');
+        console.log('OK');
       }
     } else {
       console.info(result.data);
@@ -127,7 +145,7 @@ async function executeQuery(query, description) {
     return result.data;
   } catch (error) {
     if (!verbose) {
-      console.log('❌');
+      console.log('FAIL');
     }
     
     results.errors.push({
@@ -160,7 +178,7 @@ async function executeQuery(query, description) {
  */
 async function testMetaRoutes() {
   try {
-    console.log(`\n🔍 Testing meta routes for provider: ${provider}\n`);
+    console.log(`\nTesting meta routes for provider: ${provider}\n`);
     
     // SHOW PROVIDERS to verify provider exists
     const registryQuery = "SHOW PROVIDERS";
@@ -191,7 +209,7 @@ async function testMetaRoutes() {
     // for each service
     for (const service of services) {
       const serviceName = service.name;
-      console.log(`\n📊 Processing service: ${serviceName}`);
+      console.log(`\nProcessing service: ${serviceName}`);
       
       // SHOW RESOURCES IN <provider>.<service>
       const resourcesQuery = `SHOW RESOURCES IN ${provider}.${serviceName}`;
@@ -208,7 +226,7 @@ async function testMetaRoutes() {
       // for each resource
       for (const resource of resources) {
         const resourceName = resource.name;
-        console.log(`\n  🔹 Testing resource: ${resourceName}`);
+        console.log(`\n  Testing resource: ${resourceName}`);
         
         const resourceFQRN = `${provider}.${serviceName}.${resourceName}`;
         const resourceData = {
@@ -295,13 +313,18 @@ async function testMetaRoutes() {
 
             if (extendedColumns !== null && extendedColumns.length > 0) {
               console.log(`Found ${extendedColumns.length} extended columns for ${resourceName}`);
+            } else if (SCALAR_RESPONSE_RESOURCES.has(resourceName)) {
+              // scalar (text) response - a single anonymous column at query
+              // time, so DESCRIBE is legitimately empty
+              console.log(`WARN: no columns for ${resourceName} (known scalar response)`);
+              results.scalarResponseResources.push(`${resourceData.service}.${resourceName}`);
             } else {
               console.error(`ERROR: No columns found for ${resourceName}`);
-              process.exit(1);
+              results.failures.push(`${resourceData.service}.${resourceName}: DESCRIBE EXTENDED returned no columns`);
             }
           } catch (error) {
             console.error(`Error describing extended ${resourceName}:`, error.message);
-            process.exit(1);
+            results.failures.push(`${resourceData.service}.${resourceName}: ${error.message}`);
           }
         }
 
@@ -314,8 +337,15 @@ async function testMetaRoutes() {
     results.executionTime = executionTime;
     
     // Output summary
-    console.log("\n📋 Test Summary:");
+    console.log("\nTest Summary:");
     console.info(results);
+
+    if (results.failures.length > 0) {
+      console.error(`\nFAIL ${results.failures.length} failure(s):`);
+      for (const f of results.failures) console.error(`  - ${f}`);
+      process.exit(1);
+    }
+    console.log("\nOK All meta route tests passed");
 
     // Save results to file
     // const resultsDir = path.join(baseDir, 'test-results');
@@ -404,7 +434,7 @@ async function testMetaRoutes() {
     //     ...results.resources
     //       .sort((a, b) => (b.methodCount || 0) - (a.methodCount || 0))
     //       .slice(0, 20)
-    //       .map(r => `| ${r.name} | ${r.service} | ${r.methodCount || 0} | ${r.selectable ? '✓' : '✗'} |`),
+    //       .map(r => `| ${r.name} | ${r.service} | ${r.methodCount || 0} | ${r.selectable ? 'OK' : 'FAIL'} |`),
     //     '',
     //     '## Errors',
     //     '',

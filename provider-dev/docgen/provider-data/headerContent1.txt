@@ -1,19 +1,21 @@
 ---
-title: REPLACEME
+title: myprovider
 hide_title: false
 hide_table_of_contents: false
 keywords:
-  - REPLACEME
+  - myprovider
   - stackql
   - infrastructure-as-code
   - configuration-as-data
   - cloud inventory
-description: Query, deploy and manage REPLACEME resources using SQL
+description: Query, provision and manage My Provider resources using SQL
 custom_edit_url: null
-image: /img/stackql-REPLACEME-provider-featured-image.png
+image: /img/stackql-myprovider-provider-featured-image.png
 id: 'provider-intro'
 ---
 
 import CopyableCode from '@site/src/components/CopyableCode/CopyableCode';
 
-REPLACEME with description for the provider.
+TODO(template): one paragraph - what the provider covers (the API surface, the
+services in plain words) and the two or three queries it exists for (estate
+inventory, the posture set, the flagship capability). Measured copy, no hyperbole.

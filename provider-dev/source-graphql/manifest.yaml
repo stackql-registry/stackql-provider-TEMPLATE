@@ -1,0 +1,32 @@
+# GraphQL operations merged into the generated myprovider provider by
+# provider-dev/scripts/graphql_merge.mjs (the last step of `make generate`).
+# With `ops` empty the merge is a no-op - delete this directory if the vendor
+# has no GraphQL API.
+#
+# Each entry under `ops` names a fragment in ./ops/ with: service, resource,
+# title, description, parameters (plain OpenAPI parameter objects), selection
+# (a plain dotted JSONPath to the row array, no [*]), optional cursor
+# (strategy: cursor_after | page_info | keyset | offset, jsonPath,
+# terminateOnJsonPath, format, pageSize), optional transform (a response
+# transform that runs before the selection), query (Go template: every WHERE
+# parameter is {{ .name }}, the cursor is spliced at {{ .cursor }}, a pushed
+# LIMIT arrives as {{ .limit }}) and rowSchema (so DESCRIBE and the docs show
+# real columns). GraphQL string literals must not contain newlines or
+# backslashes. See the stackql-provider-development skill, graphql-merge.md,
+# for a worked example (GitHub star history with page_info paging).
+#
+# Selection criteria: surfaces that are GraphQL-only (no REST equivalent) or
+# where GraphQL returns data the REST endpoint cannot.
+
+graphql_url: https://api.example.com/graphql
+docs_url: https://docs.example.com/graphql
+
+# Services that exist only because of GraphQL (created from scratch by the
+# merge). Ops targeting an existing REST service are added alongside it.
+services: {}
+  # discussions:
+  #   title: discussions API
+  #   description: Discussions for a repository - GraphQL only.
+
+ops: []
+  # - ops/star_history.yaml

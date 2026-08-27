@@ -1,0 +1,7 @@
+{
+  "auth": {
+    "type": "bearer",
+    "credentialsenvvar": "MYPROVIDER_API_TOKEN"
+  },
+  "snake_case_aliases": true
+}

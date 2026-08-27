@@ -1,0 +1,57 @@
+---
+name: stackql-provider-development
+description: Build a new StackQL provider or uplift an existing one to the current standard - from a published OpenAPI spec (direct archetype) or a spec derived from a vendor SDK fork (derived archetype) - using @stackql/provider-utils and every any-sdk primitive (snake_case surface, request/response transforms, pagination, query-param pushdown incl. OData, x-stackQL-envVar scoping, objectKey, lifecycle EXEC methods, GraphQL merge, provider views), with a make-driven pipeline, mock integration tests, meta-route tests and a budgeted live smoke suite. Use whenever asked to create, refresh, regenerate, uplift or fix a stackql provider repo, or to add one of those primitives to an existing provider. Publishing to the public registry is out of scope (a separate, human-in-the-loop skill).
+---
+
+# StackQL provider development
+
+A StackQL provider is a versioned set of OpenAPI documents plus `x-stackQL-resources` extensions that the `any-sdk` engine turns into SQL tables. This skill produces one - new or refreshed - that meets the current bar: latest toolchain, every engine primitive used where the API warrants it, a deterministic `make` pipeline, three credential-free test layers passing, and a live smoke suite a human can run against a dev account.
+
+The detail lives in `references/`; `scripts/` holds two generic helpers:
+
+- `scripts/spec_diff.mjs <pinned> <fetched>` - operations added/removed/renamed, schemas changed, and the JSON Schema constructs that need a fix class. Run it before accepting any spec refresh.
+- `scripts/find_extension_examples.sh <key> <registry-clone> [n]` - prints shipped YAML for an extension key (`objectKey`, `nativeCasing`, `x-stackQL-graphQL`, `queryParamPushdown`, `transform:`, ...) with context. Run it before writing any extension block by hand.
+
+## Ground rules
+
+- **Read before inventing.** Clone the reference repos ([references/reference-repos.md](references/reference-repos.md)) beside the provider repo and use `find_extension_examples.sh` to see a primitive shipped for real before authoring it. Sibling build repos carry NOTES.md findings - reuse them, do not re-derive.
+- **Latest toolchain, always.** `npm view @stackql/provider-utils version`, `npm view @stackql/pgwire-lite version`, `npm view @docusaurus/core version` before starting; pin `^latest` in package.json. Node >= 20, `"type": "module"`. The lockfile pins what CI installs, so generation stays byte-for-byte reproducible; a toolchain bump is an explicit commit that regenerates the artifacts.
+- **Deterministic pipeline.** Every step is a script that validates and fails without writing. Manual decisions are rules in scripts (mapping tables, skip codes, fix classes), never hand-edits to generated YAML or CSV. A regeneration reproduces the committed artifacts byte-for-byte (CI checks this).
+- **`all_services.csv` is the contract.** Committed and diffed on every regeneration; a method moving resource or a resource renamed is a breaking change to review, not noise.
+- **Environment.** Linux, macOS or WSL (on Windows prefer WSL and the latest `stackql` release on its PATH). GNU make + bash. `stackql` resolves as `$STACKQL`, `./stackql`, then PATH.
+- **Never touch production accounts.** Live tests run against a dedicated dev tenant, pace under the vendor's rate limit, name everything `stackql-smoke-<stamp>`, sweep breadcrumbs first, restore anything toggled.
+- **Writing.** Applies to every piece of text the build generates, whoever or whatever reads it: README, docs headers and examples, NOTES, CLAUDE.md, code comments, commit messages, console output, inventory and CSV columns, mock fixtures, hand-over notes. No em dashes (use `-`), no `--` as a dash, no characters that are not on a QWERTY keyboard (no emoji, no typographic quotes, no arrows other than `->`), no stacked headings, measured copy, no hyperbole. Text the vendor owns - operation summaries, schema and parameter descriptions, examples carried from the upstream spec into the snapshot, `provider-dev/source`, the generated provider and `website/docs` - is passed through as the vendor wrote it; the only alteration is the MDX/JSX escaping `sanitize-docs` applies so the docs site builds.
+
+## Workflow
+
+Work the steps in order. **Do not execute a step without having read its reference file in this session** - the summary below is a map, not the procedure. Every later problem traces back to the inventory and the mapping rules (steps 3-4).
+
+1. **Decide the archetype.** Direct (vendor publishes OpenAPI/Swagger/discovery) or derived (the SDK is the truth). Check for a hidden spec first: `/openapi.json` on the API host, `swagger.json` in the docs repo, the SDK generator's spec (Stainless `.stats.yml`), an `openapi.yaml` in the vendor's Terraform provider. Everything after the spec exists is identical for both.
+2. **Get the spec.** Direct: fetch, apply counted deterministic fix classes, validate with swagger-parser, redact, pin (url, hashes, counts, date), commit the snapshot - [references/direct-spec-fetch-and-pin.md](references/direct-spec-fetch-and-pin.md). Derived: fork the SDK repo, track `upstream`, parse the SDK (AST, botocore models, typed clients) and synthesise a spec with numbered passes - [references/derived-spec-pipeline.md](references/derived-spec-pipeline.md). On a refresh, run `scripts/spec_diff.mjs` first and record the summary in NOTES.md.
+3. **Inventory and split** - [references/inventory-and-mapping.md](references/inventory-and-mapping.md). One CSV row per operation (scope, pagination params, body kind, update-semantics presumption, vendor labels, response shape, proposed mapping, skip reason code). Ordered path rules -> 8-20 user-facing services; a service whose every operation is skip-coded is `excluded`. If most paths share one scoping prefix, rebase them onto a server template with `x-stackQL-envVar` - [references/scoping-and-auth.md](references/scoping-and-auth.md).
+4. **Map** - [references/inventory-and-mapping.md](references/inventory-and-mapping.md). Regenerate `all_services.csv` from scratch, fill the `stackql_*` columns from rules (`RESOURCE_RULES`, `METHOD_RULES`, skip codes), validate method uniqueness and required-parameter signatures. Plural snake_case resources, one shape per resource, `<thing>_configs` for singletons, lifecycle actions as EXEC on the resource they act on, envelope reads with `objectKey`. Use the `--report` flag to design rules before writing them.
+5. **Pre-normalize, normalize, generate, post-process** - [references/normalize-and-generate.md](references/normalize-and-generate.md). Provider-specific spec surgery, the provider-utils normalize pass (bare-array wrap), `generate` with `--servers`, `--provider-config`, `--naive-req-body-translate`, then `post_process.mjs` for everything the generator cannot express. The primitives it applies are specified in [references/request-response-shaping.md](references/request-response-shaping.md) (objectKey, transforms, naive bodies, snake_case), [references/pagination-and-pushdown.md](references/pagination-and-pushdown.md) and [references/scoping-and-auth.md](references/scoping-and-auth.md) (auth types, retry, config inheritance). Look each one up with `find_extension_examples.sh` before authoring it.
+6. **Add the non-REST surfaces.** GraphQL-backed resources where REST lacks the data - [references/graphql-merge.md](references/graphql-merge.md); provider views for json_extract-heavy posture queries - [references/provider-views.md](references/provider-views.md).
+7. **Wrap it in the Makefile** - [references/repo-layout-and-makefile.md](references/repo-layout-and-makefile.md). `make help` lists every step; `make build`, `make test`, `make all` need no credentials; `make smoke*` sources `.env`.
+8. **Test in three credential-free layers, then live** - [references/testing.md](references/testing.md). Offline `SHOW`/`DESCRIBE`, a mock API with row-level and wire-level assertions, the meta-route walk; then the pystackql smoke suite with `--live` and a budget.
+9. **Docs and CI** - [references/docs-and-ci.md](references/docs-and-ci.md). Docusaurus 3.10 microsite on the shared config with `showLastUpdateTime`, a getting-started page that leads with the queries the provider exists for, `sanitize-docs`, and the build-and-test / spec-drift workflows.
+10. **Record and hand over** - [references/handover.md](references/handover.md). CLAUDE.md (settled decisions), NOTES.md (findings with evidence, plus the open questions the first live run must answer), README.md (numbered build guide with counts that match the artifacts), `.env.example`.
+
+For an existing provider, start from [references/uplift-checklist.md](references/uplift-checklist.md) instead of step 1; it routes back into the steps above.
+
+## Engine facts that shape every build
+
+Verified against stackql v0.10.605 / any-sdk v0.5.4-alpha01 (2026-08). These change with engine releases: when the version moves, re-verify them against the mock with the `probe.mjs` tool described in [references/testing.md](references/testing.md) before relying on them.
+
+- `x-stackQL-envVar` lives only on a server variable; a WHERE value beats the env var beats `default`; joins cannot fan out on a server variable.
+- `stackql_object_key` from the CSV applies to GET only - POST-backed reads get their objectKey in post-process.
+- EXEC is the fallback verb bin: a method omitted from every `sqlVerbs` list is EXEC.
+- INSERT and EXEC send typed JSON; UPDATE marshals every value as a string; EXEC cannot carry a boolean. Document it, make the smoke test the coercion probe.
+- Naive body translation cannot address a bare-array body - rewrite to a single-item object plus a request transform.
+- A resource with no columns, or a service with no resources, fails the meta-route walk - fix the mapping, never the test.
+- `sqlVerbs` refs are tried in the order written; first parameter match wins, no selectivity sort (inventory-and-mapping.md).
+- Keys that parse but are inert or unread at this engine version - never author them, and treat any-sdk `docs/provider_spec.md` as overstating where it lists them: provider-level `responseKeys` (`selectItemsKey` is hard-coded to `items`), operation-level `x-stackQL-resource` / `x-stackQL-method` / `x-stackQL-verb` / `x-stackQL-objectKey` (generator breadcrumbs only), info-level `x-stackql-provider`, `x-alwaysRequired`, method-level `apiMethod`, pagination token `algorithm`/`args`, pushdown `filter`/`orderBy` syntaxes other than `odata`, and view predicates on `sqlDialect == "stackql"` (the names are `sqlite3` and `postgres`).
+
+## Definition of done
+
+`make all` green from a clean checkout (deps, pipeline, offline + integration + meta-route tests, docs, site build); `all_services.csv`, `provider-dev/source`, `provider-dev/openapi` and `website/docs` committed; CLAUDE.md, NOTES.md, README.md and `.env.example` current; the smoke suite runnable with `make smoke` / `make smoke-live` by someone with credentials, with its open questions listed. Publishing is the next skill.

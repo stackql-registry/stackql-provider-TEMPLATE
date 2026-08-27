@@ -1,42 +1,128 @@
-See also:   
+See also:
 [[` SHOW `]](https://stackql.io/docs/language-spec/show) [[` DESCRIBE `]](https://stackql.io/docs/language-spec/describe)  [[` REGISTRY `]](https://stackql.io/docs/language-spec/registry)
-* * * 
+* * *
 
 ## Installation
 
-To pull the latest version of the `REPLACEME` provider, run the following command:  
+To pull the latest version of the `myprovider` provider, run the following command:
 
 ```bash
-REGISTRY PULL REPLACEME;
+REGISTRY PULL myprovider;
 ```
-> To view previous provider versions or to pull a specific provider version, see [here](https://stackql.io/docs/language-spec/registry).  
+> To view previous provider versions or to pull a specific provider version, see [here](https://stackql.io/docs/language-spec/registry).
+
+## Scope
+
+TODO(template): the API this provider maps (base URL, control plane vs data
+plane), what is deliberately out of scope and why, and any sibling provider
+reserved for the other surface.
 
 ## Authentication
 
-The following system environment variables are used for authentication by default:  
+TODO(template): how the credential is created in the vendor console, which
+role/permission the queries need, and the environment variables the provider
+reads - the same names the vendor's Terraform provider uses.
 
-- <CopyableCode code="REPLACEME" /> - REPLACEME API token (see <a href="REPLACEME>How to Create a Personal Access Token</a>)
-  
-These variables are sourced at runtime (from the local machine or as CI variables/secrets).  
+```bash
+export MYPROVIDER_API_TOKEN='...'
+```
+
+or using PowerShell:
+
+```powershell
+$env:MYPROVIDER_API_TOKEN = '...'
+```
 
 <details>
 
 <summary>Using different environment variables</summary>
 
-To use different environment variables (instead of the defaults), use the `--auth` flag of the `stackql` program.  For example:  
+To use different environment variables (instead of the defaults), use the `--auth` flag of the `stackql` program. For example:
 
 ```bash
-
-AUTH='{ "REPLACEME": { "type": "bearer",  "credentialsenvvar": "REPLACEME" }}'
+AUTH='{ "myprovider": { "type": "bearer", "credentialsenvvar": "MY_OTHER_VAR" }}'
 stackql shell --auth="${AUTH}"
-
 ```
-or using PowerShell:  
+
+or using PowerShell:
 
 ```powershell
-
-$Auth = "{ 'REPLACEME': { 'type': 'bearer',  'credentialsenvvar': 'REPLACEME' }}"
+$Auth = "{ 'myprovider': { 'type': 'bearer', 'credentialsenvvar': 'MY_OTHER_VAR' }}"
 stackql.exe shell --auth=$Auth
-
 ```
 </details>
+
+## Organization scope
+
+TODO(template): delete this section if the API has no scoping server
+variable. Otherwise: every resource except X is scoped to an organization /
+project / account. The identifier is a server variable resolved from
+<CopyableCode code="MYPROVIDER_ORG_ID" /> when it is set, so queries need no
+`WHERE organization_id` clause; a `WHERE organization_id = '...'` value
+always takes precedence (how one session queries several organizations); with
+the variable unset the parameter is required on every method (visible in
+`SHOW METHODS`). A JOIN cannot fan out across organizations on the variable -
+compose list-then-per-key reads with `UNION ALL`.
+
+## Rate limit
+
+TODO(template): the vendor's documented limit, the response that signals it
+(429), and what that means for wide queries that fan out across resources.
+
+## Beta endpoints
+
+TODO(template): how the vendor labels beta / alpha / deprecated endpoints and
+how the provider mirrors that labelling in each method description. Delete if
+the vendor has no such labelling.
+
+## Example queries
+
+TODO(template): lead with the queries the provider exists for, in this order -
+the estate inventory, the posture set (config as rows), the flagship
+capability, provisioning with INSERT / UPDATE / EXEC / DELETE, and a
+cross-provider UNION. Every example must run against the generated surface
+(snake_case names, keywords such as `"database"` quoted).
+
+### Estate inventory
+
+```sql
+SELECT id, name, state, region
+FROM myprovider.services.services
+ORDER BY region, name;
+```
+
+### Posture
+
+```sql
+SELECT name, json_extract(config, '$.setting') AS setting
+FROM myprovider.services.services;
+```
+
+### Provisioning
+
+```sql
+INSERT INTO myprovider.secrets.secrets (name, value)
+SELECT 'stackql-demo', 'value';
+
+UPDATE myprovider.services.services
+SET description = 'updated'
+WHERE service_id = '<id>';
+
+EXEC myprovider.services.services.restart
+  @service_id = '<id>';
+
+DELETE FROM myprovider.secrets.secrets
+WHERE name = 'stackql-demo';
+```
+
+> `UPDATE` marshals every `SET` value as a string; `INSERT` and `EXEC` send typed JSON, and `EXEC` cannot carry a boolean.
+
+### Cross-provider
+
+```sql
+SELECT 'myprovider' AS platform, name, state
+FROM myprovider.services.services
+UNION ALL
+SELECT 'snowflake', name, state
+FROM snowflake.warehouses.warehouses;
+```
