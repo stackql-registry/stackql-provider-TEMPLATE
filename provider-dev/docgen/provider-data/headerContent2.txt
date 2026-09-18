@@ -75,15 +75,26 @@ TODO(template): how the vendor labels beta / alpha / deprecated endpoints and
 how the provider mirrors that labelling in each method description. Delete if
 the vendor has no such labelling.
 
-## Example queries
+## Example Queries
 
-TODO(template): lead with the queries the provider exists for, in this order -
-the estate inventory, the posture set (config as rows), the flagship
-capability, provisioning with INSERT / UPDATE / EXEC / DELETE, and a
-cross-provider UNION. Every example must run against the generated surface
-(snake_case names, keywords such as `"database"` quoted).
+Try the following queries using `stackql shell`, or run them from a script or CI pipeline with `stackql exec`.
+
+TODO(template): keep the heading text and the sentence above exactly as they
+are - `Example Queries` is the table-of-contents entry every provider site
+shares, and the sentence is what stops the H2 from sitting directly on an H3
+(never place two headings back to back). This must stay the last section of
+the file: docgen appends `## Services` after it. Each example is an H3 with a
+one-sentence lead-in ending in a colon and one `sql` block (occasionally two).
+Lead with the queries the provider exists for, in this order - the estate
+inventory, the posture set (config as rows), the flagship capability,
+provisioning with INSERT / UPDATE / EXEC / DELETE, and a cross-provider UNION.
+Every example must run against the generated surface (snake_case names,
+keywords such as `"database"` quoted); plain prose, `-` rather than em dashes.
+Delete this paragraph when the examples are written.
 
 ### Estate inventory
+
+TODO(template): every service with the fields an operator scans first:
 
 ```sql
 SELECT id, name, state, region
@@ -93,12 +104,16 @@ ORDER BY region, name;
 
 ### Posture
 
+TODO(template): a configuration setting read out of a nested column, one row per service:
+
 ```sql
 SELECT name, json_extract(config, '$.setting') AS setting
 FROM myprovider.services.services;
 ```
 
 ### Provisioning
+
+TODO(template): create, change and remove a resource with the corresponding SQL verbs, then a lifecycle `EXEC`:
 
 ```sql
 INSERT INTO myprovider.secrets.secrets (name, value)
@@ -118,6 +133,8 @@ WHERE name = 'stackql-demo';
 > `UPDATE` marshals every `SET` value as a string; `INSERT` and `EXEC` send typed JSON, and `EXEC` cannot carry a boolean.
 
 ### Cross-provider
+
+TODO(template): the same estate alongside a sibling provider in one result set:
 
 ```sql
 SELECT 'myprovider' AS platform, name, state

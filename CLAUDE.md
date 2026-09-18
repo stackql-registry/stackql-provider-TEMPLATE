@@ -51,7 +51,9 @@ provider-dev/
   source/              # split + normalized service specs (committed build artifacts)
   source-graphql/      # manifest.yaml + ops/*.yaml GraphQL fragments (optional)
   openapi/src/<name>/  # generated provider (committed)
-  docgen/provider-data # headerContent1.txt / headerContent2.txt (landing + getting-started page)
+  docgen/provider-data # headerContent1.txt / headerContent2.txt (landing + getting-started page;
+                       # examples close the page under "## Example Queries" - intro sentence, then
+                       # H3 + lead-in + sql block per example, see docs-and-ci.md)
 views/<service>/views.yaml   # optional provider views (spliced at generate time)
 tests/
   offline_validation.mjs

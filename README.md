@@ -129,7 +129,7 @@ make website     # yarn install && yarn build (vendors the shared stackql/docusa
 make website-start
 ```
 
-`provider-dev/docgen/provider-data/headerContent1.txt` is the landing-page front matter and pitch; `headerContent2.txt` is the getting-started page (installation, scope, authentication, the scoping variable, rate limit, labelling, example queries - lead with the queries the provider exists for). `website/provider.js` carries the site identity; `website/static/CNAME` the hostname; add `website/static/img/stackql-<name>-provider-featured-image.png`. Commit `website/docs` after every regeneration.
+`provider-dev/docgen/provider-data/headerContent1.txt` is the landing-page front matter and pitch; `headerContent2.txt` is the getting-started page (installation, scope, authentication, the scoping variable, rate limit, labelling, example queries - lead with the queries the provider exists for). The examples close the file under an `## Example Queries` heading, the same table-of-contents entry on every provider site: one intro sentence under the H2 (so no heading sits directly on another), then one H3 per example with a one-sentence lead-in ending in a colon and one `sql` block. `website/provider.js` carries the site identity; `website/static/CNAME` the hostname; add `website/static/img/stackql-<name>-provider-featured-image.png`, and keep the favicon files at the `static/` root (the shared config links them root-relative). Commit `website/docs` after every regeneration.
 
 To publish the site: rename `.github/workflows/prod-web-deploy.yml.disabled` and `test-web-deploy.yml.disabled`, enable GitHub Pages (source: GitHub Actions) and add the DNS record:
 
