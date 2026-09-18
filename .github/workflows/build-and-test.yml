@@ -42,36 +42,61 @@ jobs:
       - name: stackql version
         run: stackql --version
 
+      # A repository just created from the template has no pinned spec yet
+      # (provider-dev/config/spec_pin.json is written by the first
+      # `make fetch-spec`). Until it exists there is nothing to build or
+      # test, so those steps are skipped with a notice and the template
+      # itself stays green; a derived repository runs every step.
+      - name: Detect whether a spec is pinned
+        id: pin
+        run: |
+          if [ -f provider-dev/config/spec_pin.json ]; then
+            echo "pinned=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "pinned=false" >> "$GITHUB_OUTPUT"
+            echo "::notice title=No pinned spec::provider-dev/config/spec_pin.json does not exist yet (template state) - the build, drift check, tests and docs steps were skipped. Run 'make fetch-spec' to pin the upstream spec."
+          fi
+
       # Drift is reported, not fatal, here: the committed pin is what gets
       # built and tested. The spec-drift job below opens the review issue.
       - name: Verify the pinned spec against upstream (warns on drift)
+        if: steps.pin.outputs.pinned == 'true'
         run: |
           if ! make fetch-spec; then
             echo "::warning title=Spec drift::The served spec no longer matches provider-dev/config/spec_pin.json - run 'make refresh-spec && make build && make test' and review the diff. Building from the committed pin."
           fi
 
       - name: Build provider from the pinned spec
+        if: steps.pin.outputs.pinned == 'true'
         run: make inventory split mappings pre-normalize normalize generate
 
+      # spec_pin.json is excluded: fetch-spec refreshes its "fetched" date on
+      # every run, and pin drift is reported by the step above and by the
+      # spec-drift job.
       - name: Fail on uncommitted generation drift
+        if: steps.pin.outputs.pinned == 'true'
         run: |
           git add -N .
-          if ! git diff --quiet -- provider-dev/openapi provider-dev/config provider-dev/source; then
+          if ! git diff --quiet -- provider-dev/openapi provider-dev/config provider-dev/source ':(exclude)provider-dev/config/spec_pin.json'; then
             echo "Generated output differs from the committed artifacts - run 'make build' and commit."
-            git diff --stat -- provider-dev/openapi provider-dev/config provider-dev/source
+            git diff --stat -- provider-dev/openapi provider-dev/config provider-dev/source ':(exclude)provider-dev/config/spec_pin.json'
             exit 1
           fi
 
       - name: Offline validation
+        if: steps.pin.outputs.pinned == 'true'
         run: make test-offline
 
       - name: Integration tests (mock API)
+        if: steps.pin.outputs.pinned == 'true'
         run: make test-integration
 
       - name: Meta-route tests
+        if: steps.pin.outputs.pinned == 'true'
         run: make test-meta
 
       - name: Generate docs (sanity - the site build runs on the web workflows)
+        if: steps.pin.outputs.pinned == 'true'
         run: make docs
 
   smoke:
@@ -128,7 +153,18 @@ jobs:
       - name: Install dependencies
         run: npm ci
 
+      - name: Detect whether a spec is pinned
+        id: pin
+        run: |
+          if [ -f provider-dev/config/spec_pin.json ]; then
+            echo "pinned=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "pinned=false" >> "$GITHUB_OUTPUT"
+            echo "::notice title=No pinned spec::provider-dev/config/spec_pin.json does not exist yet (template state) - there is no pin to compare against."
+          fi
+
       - name: Fetch and compare against the pin
+        if: steps.pin.outputs.pinned == 'true'
         id: drift
         run: |
           set +e
