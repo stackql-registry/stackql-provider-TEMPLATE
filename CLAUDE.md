@@ -33,7 +33,7 @@ TODO(template): one bullet each, as they are decided:
 
 ## Toolchain rules
 
-- Latest `@stackql/provider-utils` and `@stackql/pgwire-lite` (check npm before starting: `npm view @stackql/provider-utils version`); Docusaurus `^3.10.x`. Node >= 20, `type: module`. `package-lock.json` pins what CI installs; a toolchain bump is an explicit commit that regenerates the artifacts.
+- Latest `@stackql/provider-utils`, `@stackql/pgwire-lite` and `@apidevtools/swagger-parser` (check npm before starting: `npm view @stackql/provider-utils version`); Docusaurus `^3.10.x`. Node >= 22.19 (Node 20 reached end of life in April 2026; swagger-parser 13 needs 22.19), `type: module`. `js-yaml` stays on 4.x: provider-utils emits with js-yaml 4, and v5 drops the default export, removes the `quotingType` dump option and changes scalar quoting, so that bump is a coordinated change with provider-utils. `package-lock.json` pins what CI installs; a toolchain bump is an explicit commit that regenerates the artifacts.
 - Linux, macOS or WSL: GNU make + bash, a `stackql` binary (`$STACKQL`, `./stackql`, then PATH; `bin/start-server.sh` downloads one if none is found), Python 3 and yarn. The Makefile is the operator surface (`make help`).
 - The two provider-utils CLI entry points are npm scripts invoked through `node` (never `.bin` shims); flags go after `--`.
 
@@ -62,7 +62,7 @@ tests/
 website/               # Docusaurus microsite (shared stackql/docusaurus-config vendored at build)
 .github/workflows/     # build-and-test.yml (pin check, build, drift check, 3 test layers, gated smoke,
                        # weekly spec-drift); web deploys (.disabled until GitHub Pages is configured)
-CLAUDE.md  NOTES.md  README.md  .env.example
+CLAUDE.md  NOTES.md  README.md  SECURITY.md  LICENSE  .env.example
 ```
 
 ## Build pipeline

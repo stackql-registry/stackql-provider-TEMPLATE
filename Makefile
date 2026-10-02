@@ -9,7 +9,7 @@
 # `make all` never needs credentials and never bills; the live smoke targets
 # (`make smoke*`) are separate and source .env when present.
 #
-# Requirements: Node >= 20, GNU make + bash, a stackql binary ($STACKQL,
+# Requirements: Node >= 22.19, GNU make + bash, a stackql binary ($STACKQL,
 # ./stackql or on PATH - bin/start-server.sh downloads one if none is found),
 # Python 3 (a venv with pystackql is created on demand for the smoke suite),
 # yarn for the website. Runs on Linux, macOS or WSL.
