@@ -35,7 +35,7 @@ REPO_ROOT="$( cd "$( dirname "${BASH_SOURCE[0]}" )/.." && pwd )"
 cd "$REPO_ROOT"
 
 FILES=(
-  Makefile package.json package-lock.json README.md CLAUDE.md NOTES.md .env.example
+  Makefile package.json package-lock.json README.md CLAUDE.md NOTES.md SECURITY.md .env.example
   bin/fetch-spec.sh
   provider-dev/scripts/lib/spec_helpers.mjs
   provider-dev/scripts/record_spec_pin.mjs

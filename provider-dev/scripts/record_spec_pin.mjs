@@ -106,8 +106,9 @@ const FIX_CLASSES = [
   { name: 'const_to_enum', apply: (doc) => { let n = 0; walk(doc, (o) => { if ('const' in o && !('enum' in o)) { o.enum = [o.const]; delete o.const; n++; } }); return n; } },
   { name: 'hide_definitions_removed', apply: (doc) => { let n = 0; walk(doc, (o) => { if ('hideDefinitions' in o) { delete o.hideDefinitions; n++; } }); return n; } },
   {
-    // swagger-parser v12 accepts 3.1.0 / 3.1.1 but rejects the errata-only
-    // 3.1.2 by string match; the document semantics are unchanged.
+    // swagger-parser 12 rejected the errata-only 3.1.2 by string match; 13
+    // accepts it. Kept so a snapshot's declared version does not move on a
+    // toolchain bump; the document semantics are unchanged.
     name: 'openapi_3_1_2_to_3_1_1',
     apply: (doc) => { if (doc.openapi === '3.1.2') { doc.openapi = '3.1.1'; return 1; } return 0; }
   }

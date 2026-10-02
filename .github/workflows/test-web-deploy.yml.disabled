@@ -16,9 +16,11 @@ jobs:
         with:
           fetch-depth: 0
 
+      # website/yarn.lock is written by the first `make website`; commit it
+      # before enabling this workflow (the install below is --frozen-lockfile).
       - uses: actions/setup-node@v7
         with:
-          node-version: 20
+          node-version: 22
           cache: yarn
           cache-dependency-path: website/yarn.lock
 

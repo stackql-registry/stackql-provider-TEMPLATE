@@ -25,9 +25,9 @@
     "probe": "node ./tests/integration/probe.mjs"
   },
   "dependencies": {
-    "@apidevtools/swagger-parser": "^12.1.0",
+    "@apidevtools/swagger-parser": "^13.1.0",
     "@stackql/pgwire-lite": "^1.0.2",
-    "@stackql/provider-utils": "^0.7.8",
+    "@stackql/provider-utils": "^0.7.10",
     "js-yaml": "^4.1.0",
     "pluralize": "^8.0.0"
   },
@@ -37,7 +37,7 @@
     "provider"
   ],
   "engines": {
-    "node": ">=20.0.0"
+    "node": ">=22.19.0"
   },
   "license": "MIT"
 }

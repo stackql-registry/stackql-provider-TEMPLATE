@@ -18,7 +18,7 @@ tests/
   smoke_test.py
 website/                       # Docusaurus microsite
 .github/workflows/             # build-and-test.yml, prod-web-deploy.yml, test-web-deploy.yml
-CLAUDE.md  NOTES.md  README.md  .env.example
+CLAUDE.md  NOTES.md  README.md  SECURITY.md  LICENSE  .env.example
 ```
 
 Makefile targets (bash shell, `.DEFAULT_GOAL := help`, `##` help comments): `deps`, `fetch-spec` (verify pin), `refresh-spec` (`--update`), `inventory`, `split`, `mappings` (rm CSV + analyze + map), `pre-normalize`, `normalize`, `generate` (rm output + generate + post-process), `post-process`, `build` (the chain), `test-offline`, `test-integration`, `test-meta` (start server; run; stop; preserve exit status), `test`, `venv`, `smoke`, `smoke-live`, `smoke-read-only`, `smoke-<gated-lifecycle>`, `smoke-cleanup`, `docs`, `website`, `website-start`, `clean`, `all` = `deps build test docs website`. `make all` never needs credentials and never bills. The smoke targets source `.env` when present (`set -a; source <(tr -d '\r' < .env); set +a`).

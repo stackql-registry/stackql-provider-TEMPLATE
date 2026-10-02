@@ -22,7 +22,7 @@ What the template is not: a publisher. Publishing to the public registry is a se
 
 ## Prerequisites
 
-- Node.js >= 20
+- Node.js >= 22.19
 - A `stackql` binary (`$STACKQL`, `./stackql`, or on `PATH`; `bin/start-server.sh` downloads one if none is found)
 - GNU make and bash (Linux, macOS or WSL); Python 3 for the smoke suite; yarn for the website
 - For live smoke tests: a dedicated dev account for the provider (never a production account) and its credentials in `.env` (see `.env.example`)
@@ -172,6 +172,10 @@ A user can override at runtime with `stackql --auth='{"<provider>": {...}}'`.
 
 Contributions are welcome - rules in scripts, `make build && make test`, then a pull request.
 
+## Security
+
+Report vulnerabilities privately through the repository's advisory form, never in a public issue - see [SECURITY.md](SECURITY.md).
+
 ## License
 
-MIT
+MIT - see [LICENSE](LICENSE).
