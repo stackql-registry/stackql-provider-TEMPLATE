@@ -6,5 +6,5 @@
 4. Add what is missing against this list: env-var scoping, naive bodies, snake surface, pagination, pushdown, transforms, objectKeys, lifecycle EXECs attached to their resources, views, GraphQL merge, skip codes for what is not mappable.
 5. Convert ad-hoc scripts into Makefile targets; add `make all`.
 6. Write or extend the three test layers until they cover every archetype present; add the smoke suite with `--live`.
-7. Refresh CLAUDE.md, NOTES.md, README.md, `.env.example`, the docs headers; `make docs && make website`.
+7. Refresh CLAUDE.md, NOTES.md, README.md, `.env.example`, the docs headers; bring `website/sidebars.js` and the `.sidebar-back-link` rules in `website/src/css/global.css` in line with the template (the `Back to StackQL Docs` link, see docs-and-ci.md); `make docs && make website`.
 8. `make all` green from a clean checkout before handing over.
