@@ -10,7 +10,7 @@ TODO(template): replace the paragraph above with what the provider covers (the A
 
 The build procedure is the `stackql-provider-development` skill in `.claude/skills/stackql-provider-development/` (`SKILL.md` is the map; `references/*.md` are the procedures; `scripts/` holds `spec_diff.mjs` and `find_extension_examples.sh`). Read the reference file for a step before executing it. Work the steps in order: archetype -> spec pin -> inventory and split -> mappings -> pre-normalize / normalize / generate / post-process -> GraphQL and views -> Makefile -> the three credential-free test layers -> smoke suite -> docs and CI -> hand-over.
 
-Starting from a fresh clone of the template: `bin/init-provider.sh <name> "<Title>" <api-base>` rewrites the placeholders (`myprovider`, `My Provider`, `MYPROVIDER`, `api.example.com`), then fill the constants in `provider-dev/scripts/lib/spec_helpers.mjs` (`SPEC_URL`, `SPEC_FILE`, `SCOPE_PREFIX`, `ROOT_PATHS`, `WIRE_CASING`) and `provider-dev/config/*.json`, and `make fetch-spec`. Every file carrying a `TODO(template)` marker is a decision the build must make; `grep -rn "TODO(template)" --exclude-dir=node_modules .` lists what is left.
+Starting from a fresh clone of the template: `bin/init-provider.sh <name> "<Title>" <api-base>` rewrites the placeholders (`myprovider`, `My Provider`, `MYPROVIDER`, `api.example.com`), then fill the constants in `provider-dev/scripts/lib/spec_helpers.mjs` (`SPEC_URL`, `SPEC_FILE`, `SCOPE_PREFIX`, `ROOT_PATHS`, `WIRE_CASING`) and `provider-dev/config/*.json`, confirm `SOURCE_PROJECT` in the Makefile (the repository URL docgen links from the docs landing page; the default is the `stackql-registry/stackql-provider-<name>` convention), and `make fetch-spec`. Every file carrying a `TODO(template)` marker is a decision the build must make; `grep -rn "TODO(template)" --exclude-dir=node_modules .` lists what is left.
 
 ## Archetype
 
@@ -82,7 +82,7 @@ Never run tests against a production account.
 
 ## Docs and publish
 
-`make docs` (generate with `--snake-case-aliases`, then `sanitize-docs`) and `make website`; `website/docs` is committed after every regeneration so pages stamp with their regeneration date. Publishing to the registry is a separate, human-in-the-loop step (push the generated provider dir to `providers/src` in a feature branch of `stackql-provider-registry`, follow the release flow, verify with `make smoke-live`).
+`make docs` (generate with `--snake-case-aliases` and `--source-project $(SOURCE_PROJECT)`, then `sanitize-docs`) and `make website`; `website/docs` is committed after every regeneration so pages stamp with their regeneration date. Publishing to the registry is a separate, human-in-the-loop step (push the generated provider dir to `providers/src` in a feature branch of `stackql-provider-registry`, follow the release flow, verify with `make smoke-live`).
 
 ## Writing conventions
 

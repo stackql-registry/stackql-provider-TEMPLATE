@@ -23,6 +23,12 @@ jobs:
   build-and-test:
     if: github.event_name != 'schedule'
     runs-on: ubuntu-latest
+    # Consumed by the smoke job's `if`: a job-level condition cannot read
+    # secrets or another job's step outputs directly, so both gates are
+    # computed here and exported.
+    outputs:
+      pinned: ${{ steps.pin.outputs.pinned }}
+      smoke_creds: ${{ steps.creds.outputs.present }}
     steps:
       - uses: actions/checkout@v7
 
@@ -55,6 +61,23 @@ jobs:
           else
             echo "pinned=false" >> "$GITHUB_OUTPUT"
             echo "::notice title=No pinned spec::provider-dev/config/spec_pin.json does not exist yet (template state) - the build, drift check, tests and docs steps were skipped. Run 'make fetch-spec' to pin the upstream spec."
+          fi
+
+      # Only presence is recorded, never the value. The notice is raised only
+      # where the smoke job would otherwise have run (a pinned spec, not a
+      # pull request), so the template and PRs from forks stay quiet.
+      - name: Detect whether the smoke credentials are configured
+        id: creds
+        env:
+          MYPROVIDER_API_TOKEN: ${{ secrets.MYPROVIDER_API_TOKEN }}
+        run: |
+          if [ -n "$MYPROVIDER_API_TOKEN" ]; then
+            echo "present=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "present=false" >> "$GITHUB_OUTPUT"
+            if [ "${{ steps.pin.outputs.pinned }}" = "true" ] && [ "$GITHUB_EVENT_NAME" != "pull_request" ]; then
+              echo "::notice title=Live smoke suite skipped::MYPROVIDER_API_TOKEN is not configured - the smoke job was skipped. Credential-free coverage still ran via the mock-server integration suite."
+            fi
           fi
 
       # Drift is reported, not fatal, here: the committed pin is what gets
@@ -100,13 +123,19 @@ jobs:
         run: make docs
 
   smoke:
-    # secret-gated live smoke suite against the dedicated dev account;
-    # skipped with a notice when the secrets are not configured (forks, PRs
-    # from outside). Never the expensive gated lifecycle - trigger that
-    # deliberately with `make smoke-gated-lifecycle`.
+    # Live smoke suite against the dedicated dev account. Skipped at the job
+    # level, so no runner is consumed, on pull requests (secrets are not
+    # available to forks), on the schedule, until a spec is pinned, and until
+    # the secrets are configured; the last two arrive as build-and-test
+    # outputs. Never the expensive gated lifecycle - trigger that deliberately
+    # with `make smoke-gated-lifecycle`.
     runs-on: ubuntu-latest
     needs: build-and-test
-    if: github.event_name != 'pull_request' && github.event_name != 'schedule'
+    if: >-
+      github.event_name != 'pull_request' &&
+      github.event_name != 'schedule' &&
+      needs.build-and-test.outputs.pinned == 'true' &&
+      needs.build-and-test.outputs.smoke_creds == 'true'
     env:
       MYPROVIDER_API_TOKEN: ${{ secrets.MYPROVIDER_API_TOKEN }}
       MYPROVIDER_ORG_ID: ${{ secrets.MYPROVIDER_ORG_ID }}
@@ -126,13 +155,7 @@ jobs:
         run: npm ci
 
       - name: Live smoke suite
-        if: env.MYPROVIDER_API_TOKEN != ''
         run: make smoke
-
-      - name: Live smoke skipped (no credentials)
-        if: env.MYPROVIDER_API_TOKEN == ''
-        run: |
-          echo "::notice title=Live smoke suite skipped::MYPROVIDER_API_TOKEN secrets are not configured - the live smoke suite did not run. Credential-free coverage still ran via the mock-server integration suite."
 
   spec-drift:
     # Diff the served spec against the pin on a schedule and on demand, and
