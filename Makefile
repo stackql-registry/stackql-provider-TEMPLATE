@@ -14,7 +14,7 @@
 # Python 3 (a venv with pystackql is created on demand for the smoke suite),
 # yarn for the website. Runs on Linux, macOS or WSL.
 #
-# TODO(template): set PROVIDER (or run bin/init-provider.sh), then review
+# TODO(template): set PROVIDER and SOURCE_PROJECT (or run bin/init-provider.sh), then review
 # every target marked TODO as the provider comes together. Rename
 # smoke-gated-lifecycle to the expensive lifecycle the provider gates
 # (smoke-service, smoke-project-lifecycle, ...), or delete it.
@@ -30,6 +30,12 @@ PROVIDER_DIR := $(SERVICES_DIR)/$(VERSION)
 SOURCE_DIR := provider-dev/source
 CONFIG_DIR := provider-dev/config
 GRAPHQL_DIR := provider-dev/source-graphql
+# The repository docgen links from the Provider Summary on the docs landing
+# page (the label is the URL's last path segment). bin/init-provider.sh
+# rewrites the slug; a provider hosted outside stackql-registry sets its own
+# URL here or passes SOURCE_PROJECT=... on the command line. Always the
+# consuming repository's URL, never the template's.
+SOURCE_PROJECT ?= https://github.com/stackql-registry/stackql-provider-myprovider
 PORT ?= 5444
 VENV := .venv
 PY := $(VENV)/bin/python
@@ -156,13 +162,14 @@ smoke-cleanup: venv ## sweep stackql-smoke-* breadcrumbs and exit
 
 # -------------------------------------------------------------------- docs
 
-docs: ## generate the website docs (snake_case surface), then sanitize for MDX
+docs: ## generate the website docs (snake_case surface, source project link), then sanitize for MDX
 	npm run generate-docs -- \
 	  --provider-name $(PROVIDER) \
 	  --provider-dir ./$(PROVIDER_DIR) \
 	  --output-dir ./website \
 	  --provider-data-dir ./provider-dev/docgen/provider-data \
-	  --snake-case-aliases
+	  --snake-case-aliases \
+	  --source-project $(SOURCE_PROJECT)
 	npm run sanitize-docs
 
 website: ## build the docusaurus microsite (vendors the shared stackql config first)

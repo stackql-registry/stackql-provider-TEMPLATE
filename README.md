@@ -9,8 +9,8 @@ The rest of this file is the shape of the finished provider README (numbered bui
 ## Using the template
 
 1. Create the repository from this template (GitHub "Use this template", or clone and re-init) and run `npm install`.
-2. Rewrite the placeholders: `bin/init-provider.sh <name> "<Title>" [https://api.vendor.com]` replaces `myprovider`, `My Provider`, `MYPROVIDER` and `api.example.com` across the files that carry them (`grep -rn myprovider .` afterwards should find nothing outside `.claude/`).
-3. Fill the constants in `provider-dev/scripts/lib/spec_helpers.mjs` (`SPEC_URL`, `SPEC_FILE`, `PATH_VERSION_PREFIX`, `SCOPE_PREFIX` / `ROOT_PATHS` for a scoped API, `WIRE_CASING`) and `provider-dev/config/` (`servers.json`, `provider_config.json`, `service_names.json`).
+2. Rewrite the placeholders: `bin/init-provider.sh <name> "<Title>" [https://api.vendor.com]` replaces `myprovider`, `My Provider`, `MYPROVIDER`, `api.example.com` and the `stackql-provider-myprovider` repository slug across the files that carry them (`grep -rn myprovider .` afterwards should find nothing outside `.claude/`).
+3. Fill the constants in `provider-dev/scripts/lib/spec_helpers.mjs` (`SPEC_URL`, `SPEC_FILE`, `PATH_VERSION_PREFIX`, `SCOPE_PREFIX` / `ROOT_PATHS` for a scoped API, `WIRE_CASING`) and `provider-dev/config/` (`servers.json`, `provider_config.json`, `service_names.json`). `SOURCE_PROJECT` in the Makefile defaults to `https://github.com/stackql-registry/stackql-provider-<name>`; set it to the repository's own URL when it lives elsewhere.
 4. Open a Claude Code session in the repository and ask it to build the provider - it picks up `CLAUDE.md` and the skill. Or work the skill's steps by hand: `make fetch-spec`, `make inventory`, add service rules, `make split`, `make mappings-report` / `make mappings`, and so on to `make all`.
 5. `grep -rn "TODO(template)" --exclude-dir=node_modules .` lists what is still open.
 
@@ -131,6 +131,8 @@ make website-start
 
 `provider-dev/docgen/provider-data/headerContent1.txt` is the landing-page front matter and pitch; `headerContent2.txt` is the getting-started page (installation, scope, authentication, the scoping variable, rate limit, labelling, example queries - lead with the queries the provider exists for). The examples close the file under an `## Example Queries` heading, the same table-of-contents entry on every provider site: one intro sentence under the H2 (so no heading sits directly on another), then one H3 per example with a one-sentence lead-in ending in a colon and one `sql` block. `website/provider.js` carries the site identity; `website/static/CNAME` the hostname; add `website/static/img/stackql-<name>-provider-featured-image.png`, and keep the favicon files at the `static/` root (the shared config links them root-relative). Commit `website/docs` after every regeneration.
 
+`make docs` also passes `--source-project $(SOURCE_PROJECT)`, which adds a `source project` row to the Provider Summary on the landing page linking to this repository. The default is the `stackql-registry/stackql-provider-<name>` convention; a repository hosted elsewhere sets `SOURCE_PROJECT` in the Makefile (or runs `make docs SOURCE_PROJECT=<url>`).
+
 To publish the site: rename `.github/workflows/prod-web-deploy.yml.disabled` and `test-web-deploy.yml.disabled`, enable GitHub Pages (source: GitHub Actions) and add the DNS record:
 
 | Source domain | Record type | Target |
@@ -152,7 +154,7 @@ REGISTRY PULL myprovider;
 
 ## 8. CI
 
-`.github/workflows/build-and-test.yml`: on push / PR - `npm ci`, `stackql/setup-stackql`, pin verification (warns on drift), the build steps, a hard failure on uncommitted generation drift, the three credential-free test layers, docs generation; a secret-gated live smoke job (skipped with a notice otherwise; never the gated lifecycle); a weekly `spec-drift` job that fetches, compares with the pin and opens a labelled issue. The web deploy workflows build the site from `main` once enabled.
+`.github/workflows/build-and-test.yml`: on push / PR - `npm ci`, `stackql/setup-stackql`, pin verification (warns on drift), the build steps, a hard failure on uncommitted generation drift, the three credential-free test layers, docs generation; a live smoke job that is skipped at the job level on pull requests, until a spec is pinned and until the secrets are configured (never the gated lifecycle); a weekly `spec-drift` job that fetches, compares with the pin and opens a labelled issue. The web deploy workflows build the site from `main` once enabled.
 
 ## Authentication reference
 

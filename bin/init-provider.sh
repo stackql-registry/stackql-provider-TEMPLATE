@@ -7,6 +7,8 @@
 #   My Provider             -> <title>       (human-readable, docs and site)
 #   MYPROVIDER              -> <NAME>        (env var prefix, upper snake_case)
 #   https://api.example.com -> <api-base>    (optional third argument)
+#   stackql-provider-myprovider -> stackql-provider-<slug>  (repository slug, _ as -;
+#                           the Makefile SOURCE_PROJECT default, the SECURITY.md link)
 #
 # Everything else (auth type, scoping variable, service rules, mapping rules,
 # spec URL) is a decision the build makes afterwards - see CLAUDE.md and the
@@ -21,7 +23,7 @@ NAME="${1:-}"
 TITLE="${2:-}"
 API_BASE="${3:-}"
 if [ -z "$NAME" ] || [ -z "$TITLE" ]; then
-  sed -n '3,16p' "$0"
+  sed -n '3,18p' "$0"
   exit 2
 fi
 if ! [[ "$NAME" =~ ^[a-z][a-z0-9_]*$ ]]; then
@@ -59,10 +61,12 @@ FILES=(
 
 for f in "${FILES[@]}"; do
   [ -f "$f" ] || continue
-  # order matters: the upper-case token first so it is not caught by the lower-case one
+  # order matters: the upper-case token and the slug forms (docs hostname,
+  # repository URL) first so they are not caught by the lower-case one
   sed -i \
     -e "s/MYPROVIDER/${UPPER}/g" \
     -e "s/myprovider-provider\.stackql\.io/${SLUG}-provider.stackql.io/g" \
+    -e "s#github\.com/stackql-registry/stackql-provider-myprovider#github.com/stackql-registry/stackql-provider-${SLUG}#g" \
     -e "s/myprovider/${NAME}/g" \
     -e "s/My Provider/${TITLE}/g" \
     "$f"
@@ -80,4 +84,5 @@ fi
 echo "Rewrote placeholders: myprovider -> ${NAME}, 'My Provider' -> '${TITLE}', MYPROVIDER -> ${UPPER}${API_BASE:+, api.example.com -> ${API_BASE}}"
 echo "Remaining placeholders (expected: none in the file list above):"
 grep -rn --exclude-dir=node_modules --exclude-dir=.git --exclude-dir=.claude -e 'myprovider' -e 'My Provider' -e 'MYPROVIDER' . || echo "  none"
+echo "SOURCE_PROJECT in the Makefile now defaults to https://github.com/stackql-registry/stackql-provider-${SLUG} (the repository link docgen writes into the docs landing page) - change it if the repository lives elsewhere."
 echo "Next: edit provider-dev/scripts/lib/spec_helpers.mjs (SPEC_URL, SPEC_FILE, SCOPE_PREFIX) and provider-dev/config/*.json, then 'make fetch-spec'."
