@@ -2,7 +2,7 @@
 
 ## What to record where
 
-- **CLAUDE.md** - the settled decisions (archetype, scoping variable, auth, the flagship mapping, skip codes, casing policy), the toolchain rules, where the findings live, the non-negotiables. Short; it is read every session.
+- **AGENTS.md** - the settled decisions (archetype, scoping variable, auth, the flagship mapping, skip codes, casing policy), the toolchain rules, where the findings live, the non-negotiables. Short; it is read every session. It is the one tool-neutral guidance file: Codex reads it directly, `CLAUDE.md` imports it for Claude Code (an `@AGENTS.md` line) and `.github/copilot-instructions.md` points GitHub Copilot to it. Project rules go in AGENTS.md, never in the two entry points; those carry only what applies to their tool alone.
 - **NOTES.md** - numbered findings with evidence (what was measured, against what, what was decided and why), a Blockers list of what only a live run can establish, and the testing requirements. It is the memory of the build; a future refresh reads it before touching a rule.
 - **README.md** - the numbered build guide (steps 0-8: pin, inventory, split, mappings, normalize, generate, test, publish, docs) with counts that match the committed artifacts, the Makefile targets, credentials, and the CI description.
 - **.env.example** - every live-test variable with a one-line comment; never a real value.

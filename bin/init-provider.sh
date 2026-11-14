@@ -11,7 +11,7 @@
 #                           the Makefile SOURCE_PROJECT default, the SECURITY.md link)
 #
 # Everything else (auth type, scoping variable, service rules, mapping rules,
-# spec URL) is a decision the build makes afterwards - see CLAUDE.md and the
+# spec URL) is a decision the build makes afterwards - see AGENTS.md and the
 # stackql-provider-development skill. Review `git diff` after running.
 #
 # Usage: bin/init-provider.sh <name> "<Title>" [https://api.vendor.com]
@@ -37,7 +37,7 @@ REPO_ROOT="$( cd "$( dirname "${BASH_SOURCE[0]}" )/.." && pwd )"
 cd "$REPO_ROOT"
 
 FILES=(
-  Makefile package.json package-lock.json README.md CLAUDE.md NOTES.md SECURITY.md .env.example
+  Makefile package.json package-lock.json README.md AGENTS.md NOTES.md SECURITY.md .env.example
   bin/fetch-spec.sh
   provider-dev/scripts/lib/spec_helpers.mjs
   provider-dev/scripts/record_spec_pin.mjs
