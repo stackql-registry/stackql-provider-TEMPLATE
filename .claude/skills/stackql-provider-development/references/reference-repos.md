@@ -1,6 +1,6 @@
 # Reference repositories
 
-Clone these next to the provider repo (shallow clones are fine) and grep them for any extension key to find a real, shipped example. Sibling build repos carry a NOTES.md (or CLAUDE.md) of findings - reuse them, do not re-derive.
+Clone these next to the provider repo (shallow clones are fine) and grep them for any extension key to find a real, shipped example. Sibling build repos carry a NOTES.md (or AGENTS.md / CLAUDE.md) of findings - reuse them, do not re-derive.
 
 | Repo | What to read |
 |---|---|
