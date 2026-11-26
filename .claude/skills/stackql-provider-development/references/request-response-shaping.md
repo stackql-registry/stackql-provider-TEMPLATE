@@ -41,6 +41,8 @@ Two halves, both needed when the wire is camelCase (or mixed):
 1. `snake_case_aliases: true` in the provider config - output columns display as `casing.ToSnake(wireKey)` while extraction uses the wire key. Nested JSON keeps wire casing (`json_extract(config, '$.dbAllowedCidrs')`).
 2. `request.nativeCasing: camel` (also `pascal`, `kebab`, `snake`) on each method whose **parameters or body properties** are camelCase - snake SQL keys are converted back and re-resolved. Set it per method in post-process (provider-utils has no flag for it). Do not set it on methods whose wire is snake_case; do set it on body-less GETs with camelCase query parameters.
 
+3. Path parameters are renamed to snake_case in the provider document itself (`/board/{board_id}`, parameter `board_id`) by a last post-process rule: their names never go on the wire, and omnisdk matches a WHERE key to a parameter by its declared name, so `nativeCasing` does not interfere. The rule renames the path keys, the inline and shared-component parameters and every method's operation `$ref` together, and runs after the rules that match the vendor's path keys.
+
 Then `generate-docs --snake-case-aliases` so the docs show the same surface. Renaming a column between provider versions (`instanceId` -> `instance_id`) is an accepted breaking change; renaming a resource or moving a method is not.
 
 Watch for collisions: a schema carrying both `connection_string` and `connectionString` produces two identical snake columns and a DDL error at query time - drop the camel duplicate in pre-normalize.

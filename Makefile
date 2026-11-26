@@ -65,12 +65,11 @@ inventory: ## build provider-dev/config/endpoint_inventory.csv from the pinned s
 split: ## split the pinned spec into per-service specs (ordered path rules in service_names.json)
 	npm run split -- --provider-name $(PROVIDER) --overwrite
 
-mappings: ## regenerate all_services.csv from scratch and apply the deterministic mapping rules
-	rm -f $(CONFIG_DIR)/all_services.csv
+mappings: ## add new operations to the all_services.csv dictionary (named by the rules); mapped rows are kept as they are
 	npm run generate-mappings -- --provider-name $(PROVIDER) --input-dir $(SOURCE_DIR) --output-dir $(CONFIG_DIR)
 	npm run map-operations
 
-mappings-report: ## print every derived mapping without writing (design RESOURCE_RULES / METHOD_RULES)
+mappings-report: ## print the mapping without writing (design RESOURCE_RULES / METHOD_RULES)
 	npm run map-operations -- --report
 
 pre-normalize: ## provider-specific spec surgery on provider-dev/source before the generic normalize pass

@@ -1,12 +1,19 @@
 #!/usr/bin/env node
 
-// Populates stackql_resource_name, stackql_method_name, stackql_verb and
-// stackql_object_key in provider-dev/config/all_services.csv from the split
-// service specs in provider-dev/source. Deterministic and re-runnable on
-// spec refreshes; review the CSV diff after running - a method moving
-// resource or a resource renamed is a breaking change to review, not noise.
-// Manual mapping decisions are applied as rules here, never as hand-edits
-// to the CSV.
+// Maintains provider-dev/config/all_services.csv, the provider's durable
+// dictionary of operation -> stackql_resource_name, stackql_method_name,
+// stackql_verb and stackql_object_key, keyed by filename::operationId. The
+// CSV is the source of truth for every operation it maps: a mapped row is
+// never rewritten. `make mappings` runs provider-utils analyze first, which
+// appends a blank row for each operationId the CSV lacks; this script names
+// only those rows (the derivation and override tables below, then the
+// service prefix is dropped: see "Resource naming guidance" in
+// provider_development.md), updates the path of an operation that moved,
+// drops rows of removed operations and the duplicates analyze appends for
+// skip_this_resource rows, and validates every row. To rename, edit the row;
+// to have the rules name an operation again, blank its stackql_resource_name.
+// Review the CSV diff after running - a method moving resource or a resource
+// renamed is a breaking change to review, not noise.
 //
 // Mechanical derivation (lib/spec_helpers.mjs), then the override tables:
 //   GET collection            -> SELECT <resource>.list   (objectKey from the envelope)
@@ -206,37 +213,107 @@ for (const required of ['filename', 'path', 'verb', 'operationId', 'stackql_reso
 }
 
 const errors = [];
-const seenKeys = new Set();
 const stats = { select: 0, insert: 0, update: 0, delete: 0, exec: 0, skipped: 0 };
-const skipsByReason = {};
+const SKIP = 'skip_this_resource';
+const NAME_COLUMNS = ['stackql_resource_name', 'stackql_method_name', 'stackql_verb', 'stackql_object_key'];
+const namesOf = (row) => NAME_COLUMNS.map((c) => row[col[c]]);
+const setNames = (row, values) => NAME_COLUMNS.forEach((c, i) => { row[col[c]] = values[i]; });
+// mapped: skip_this_resource, or a resource with a method and a SQL verb
+const isMapped = (row) => row[col.stackql_resource_name] === SKIP
+  || Boolean(row[col.stackql_resource_name] && row[col.stackql_method_name] && row[col.stackql_verb]);
 
+// the dictionary key of every spec operation: filename::operationId
+const specOps = new Map();
+for (const [key, entry] of ops) {
+  const [filename, pathKey, verb] = key.split('::');
+  if (!entry.op.operationId) { errors.push(`${filename}: ${verb.toUpperCase()} ${pathKey} has no operationId (the dictionary key)`); continue; }
+  const idKey = `${filename}::${entry.op.operationId}`;
+  if (specOps.has(idKey)) { errors.push(`${filename}: operationId ${entry.op.operationId} is used twice`); continue; }
+  specOps.set(idKey, { filename, pathKey, verb });
+}
+
+// Merge the dictionary with the spec: mapped rows are kept as they are;
+// rows of removed operations and the duplicates analyze appends (it treats
+// a row without a method, such as skip_this_resource, as unmapped) are
+// dropped; an operation that moved keeps its names with its new path.
+const kept = [];
+const seen = new Set();
+const removed = [];
+const changes = [];
+let duplicates = 0;
 for (const row of rows.slice(1)) {
-  const filename = row[col.filename], pathKey = row[col.path], verb = row[col.verb];
-  seenKeys.add(`${filename}::${pathKey}::${verb}`);
-  const m = mapOperation(filename, pathKey, verb);
-  if (m.error) {
-    errors.push(`${filename} ${verb} ${pathKey}: ${m.error}`);
+  const idKey = `${row[col.filename]}::${row[col.operationId]}`;
+  if (seen.has(idKey)) { duplicates++; continue; }
+  seen.add(idKey);
+  const op = specOps.get(idKey);
+  if (!op) { removed.push(row); continue; }
+  if (row[col.path] !== op.pathKey || row[col.verb] !== op.verb) {
+    changes.push(`moved, names kept: ${idKey}: ${row[col.verb]} ${row[col.path]} -> ${op.verb} ${op.pathKey}`);
+    row[col.path] = op.pathKey;
+    row[col.verb] = op.verb;
+  }
+  kept.push(row);
+}
+for (const idKey of specOps.keys()) if (!seen.has(idKey)) errors.push(`in spec but not in CSV: ${idKey} (make mappings runs analyze to add it)`);
+
+// Name the unmapped rows with the rules. An operationId renamed upstream at
+// the same path and verb keeps the names of the removed row.
+const removedByPath = new Map(removed.filter(isMapped).map((r) => [`${r[col.filename]}::${r[col.path]}::${r[col.verb]}`, r]));
+const named = [];
+for (const row of kept) {
+  if (isMapped(row)) continue;
+  const previous = removedByPath.get(`${row[col.filename]}::${row[col.path]}::${row[col.verb]}`);
+  if (previous) {
+    setNames(row, namesOf(previous));
+    removed.splice(removed.indexOf(previous), 1);
+    changes.push(`operationId renamed upstream, names kept: ${previous[col.operationId]} -> ${row[col.operationId]}`);
     continue;
   }
-  row[col.stackql_resource_name] = m.resource;
-  if (m.resource === 'skip_this_resource') {
-    stats.skipped++;
-    skipsByReason[m.skip] = (skipsByReason[m.skip] || 0) + 1;
-    row[col.stackql_method_name] = '';
-    row[col.stackql_verb] = '';
-    row[col.stackql_object_key] = '';
-    continue;
-  }
-  row[col.stackql_method_name] = m.method;
-  row[col.stackql_verb] = m.sqlVerb;
-  row[col.stackql_object_key] = m.objectKey;
-  stats[m.sqlVerb]++;
+  const m = mapOperation(row[col.filename], row[col.path], row[col.verb]);
+  if (m.error) { errors.push(`${row[col.filename]} ${row[col.verb]} ${row[col.path]}: ${m.error}`); continue; }
+  setNames(row, m.resource === SKIP ? [SKIP, '', '', ''] : [m.resource, m.method, m.sqlVerb, m.objectKey || '']);
+  named.push({ row, skip: m.skip });
 }
 
-// every spec operation must have a CSV row (else generate-provider misses it)
-for (const key of ops.keys()) {
-  if (!seenKeys.has(key)) errors.push(`in spec but not in CSV: ${key}`);
+// Resource naming: drop a leading service name (singular or plural) from the
+// names the rules just produced (fields.field_schemes -> fields.schemes), not
+// when the remainder would start with a preposition or collide with another
+// resource of the service. Rows already in the dictionary are not renamed.
+const NOT_A_NAME_START = new Set(['with', 'without', 'by', 'for', 'in', 'of', 'to', 'from', 'on', 'only']);
+const byService = new Map();
+for (const row of kept) {
+  const service = row[col.filename].replace(/\.yaml$/, '');
+  if (!byService.has(service)) byService.set(service, new Set());
+  if (row[col.stackql_resource_name] !== SKIP) byService.get(service).add(row[col.stackql_resource_name]);
 }
+for (const [service, names] of byService) {
+  const words = service.split('_');
+  const forms = [...new Set([service, [...words.slice(0, -1), pluralize.singular(words[words.length - 1])].join('_')])].sort((a, b) => b.length - a.length);
+  const fresh = new Set(named.filter((n) => n.row[col.filename] === `${service}.yaml` && n.row[col.stackql_resource_name] !== SKIP).map((n) => n.row[col.stackql_resource_name]));
+  const proposals = new Map();
+  for (const name of fresh) {
+    const form = forms.find((f) => name.startsWith(`${f}_`));
+    const rest = form ? name.slice(form.length + 1) : '';
+    if (rest && !NOT_A_NAME_START.has(rest.split('_')[0])) proposals.set(name, rest);
+  }
+  const counts = new Map();
+  for (const rest of proposals.values()) counts.set(rest, (counts.get(rest) || 0) + 1);
+  for (const [name, rest] of proposals) {
+    if ((names.has(rest) && !proposals.has(rest)) || counts.get(rest) > 1) continue;
+    for (const n of named) if (n.row[col.filename] === `${service}.yaml` && n.row[col.stackql_resource_name] === name) n.row[col.stackql_resource_name] = rest;
+  }
+}
+for (const n of named) {
+  const [resource, method, sqlVerb] = namesOf(n.row);
+  changes.push(`added ${n.row[col.filename]}::${n.row[col.operationId]} -> ${resource === SKIP ? `${SKIP} (${n.skip})` : `${resource}.${method} (${sqlVerb})`}`);
+}
+for (const r of removed) changes.push(`removed (no longer in the spec): ${r[col.filename]}::${r[col.operationId]}`);
+for (const row of kept) {
+  const [resource, , sqlVerb] = namesOf(row);
+  if (resource === SKIP) stats.skipped++;
+  else if (sqlVerb in stats) stats[sqlVerb]++;
+}
+rows.splice(1, rows.length - 1, ...kept);
 
 // ---------------------------------------------------------------------------
 // Consistency checks
@@ -300,7 +377,10 @@ for (const row of rows.slice(1)) {
   if (!resourcesByService.has(service)) resourcesByService.set(service, new Set());
   resourcesByService.get(service).add(resource);
 }
-console.log(`Mapped: select ${stats.select}, insert ${stats.insert}, update ${stats.update}, delete ${stats.delete}, exec ${stats.exec}; skipped ${stats.skipped}${stats.skipped ? ` (${Object.entries(skipsByReason).map(([k, v]) => `${k}: ${v}`).join(', ')})` : ''}`);
+for (const c of changes) console.log(c);
+if (duplicates) console.log(`dropped ${duplicates} duplicate row(s) analyze re-appended (rows without a method, such as ${SKIP})`);
+console.log(`Dictionary: ${kept.length - named.length} operation(s) kept, ${named.length} added, ${removed.length} removed`);
+console.log(`Mapped: select ${stats.select}, insert ${stats.insert}, update ${stats.update}, delete ${stats.delete}, exec ${stats.exec}; skipped ${stats.skipped}`);
 console.log('Resources per service:');
 for (const [service, resources] of [...resourcesByService.entries()].sort()) {
   console.log(`  ${service}: ${[...resources].sort().join(', ')}`);
