@@ -56,6 +56,7 @@ FILES=(
   tests/smoke_test.py
   website/provider.js
   website/static/CNAME
+  website/static/robots.txt
   website/static/site.webmanifest
   .github/workflows/build-and-test.yml
 )
