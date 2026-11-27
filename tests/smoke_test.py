@@ -43,6 +43,7 @@ import argparse
 import json
 import os
 import re
+import subprocess
 import sys
 import time
 from pathlib import Path
@@ -55,9 +56,9 @@ INTER_REQUEST_DELAY_S = 1.2
 # TODO(template): the credential and scoping variables the provider reads
 REQUIRED_ENV = ("MYPROVIDER_API_TOKEN",)
 # pystackql manages its own stackql binary; the harness upgrades it when
-# older than the minimum the provider needs (x-stackQL-envVar server
-# variables need >= 0.10.601).
-MIN_STACKQL_VERSION = (0, 10, 601)
+# older than the minimum the provider needs (the omnisdk engine, on which the
+# brief's engine facts were measured, is stackql >= v1.1.959).
+MIN_STACKQL_VERSION = (1, 1, 959)
 
 ERROR_RE = re.compile(
     r"http response status code: [45]|over HTTP error|error assembling|"
@@ -83,6 +84,7 @@ class Smoke:
 
         from pystackql import StackQL
 
+        self.registry_arg = None
         if not args.live:
             reg_path = (BASE_DIR / "provider-dev" / "openapi").resolve()
             reg_url = "file://" + reg_path.as_posix()
@@ -94,6 +96,7 @@ class Smoke:
                 {"url": reg_url, "localDocRoot": reg_path.as_posix(), "verifyConfig": {"nopVerify": True}},
                 separators=(",", ":"),
             )
+            self.registry_arg = full
             if sys.platform.startswith("win"):
                 quoted = '"' + full.replace('"', '\\"') + '"'
             else:
@@ -107,6 +110,9 @@ class Smoke:
         else:
             self.sq = StackQL(output="dict")
         self.ensure_stackql_version()
+        if args.live:
+            # the published provider: pull the latest version from the registry
+            self.sq.executeStmt(f"REGISTRY PULL {PROVIDER}")
 
     def ensure_stackql_version(self) -> None:
         def parse(v: str) -> tuple[int, ...]:
@@ -123,25 +129,38 @@ class Smoke:
 
     # ------------------------------------------------------------------ core
     def q(self, sql: str):
-        # serial pacing under the rate limit
+        """Run one statement with the stackql binary pystackql manages.
+
+        pystackql returns an empty result for a read whose HTTP call failed
+        (stackql prints null on stdout and the failure on stderr, and
+        pystackql keeps stdout), so a failed read would pass as "no rows".
+        The harness therefore runs `stackql exec` itself and reads both
+        streams: rows from stdout, a failure from stderr. Statements are
+        paced serially under the rate limit.
+        """
         if self.requests:
             time.sleep(INTER_REQUEST_DELAY_S)
         self.requests += 1
+        cmd = [self.sq.bin_path, "exec", "--output", "json"]
+        if self.registry_arg:
+            cmd.append(f"--registry={self.registry_arg}")
+        cmd.append(sql)
         try:
-            if sql.lstrip().upper().startswith(("SELECT", "SHOW", "DESCRIBE")) or "RETURNING" in sql.upper():
-                out = self.sq.execute(sql)
-            else:
-                out = self.sq.executeStmt(sql)
+            proc = subprocess.run(cmd, capture_output=True, text=True, timeout=300, cwd=str(BASE_DIR))
         except Exception as exc:  # noqa: BLE001
             return [], str(exc)
-        text = json.dumps(out, default=str)
-        if RATE_LIMIT_RE.search(text):
-            return out if isinstance(out, list) else [out], "RATE LIMITED (429) - harness pacing bug: " + text
-        if ERROR_RE.search(text):
-            return out if isinstance(out, list) else [out], text
-        if isinstance(out, list) and out and isinstance(out[0], dict) and "error" in out[0]:
-            return out, text
-        return out if isinstance(out, list) else [out], None
+        out, err = proc.stdout.strip(), proc.stderr.strip()
+        if RATE_LIMIT_RE.search(out + err):
+            return [], "RATE LIMITED (429) - harness pacing bug: " + (err or out)
+        if ERROR_RE.search(err) or (proc.returncode != 0 and err):
+            return [], err
+        if not out or out == "null":
+            return [], None
+        try:
+            rows = json.loads(out)
+        except json.JSONDecodeError:
+            return [], (out if ERROR_RE.search(out) else None)
+        return (rows if isinstance(rows, list) else [rows]), None
 
     def step(self, name: str, sql: str, expect_rows: bool = False, contains: str | None = None):
         rows, err = self.q(sql)
@@ -163,7 +182,7 @@ class Smoke:
         return rows
 
     def wait_for(self, name: str, sql: str, pred, timeout: int = 600, interval: int = 10):
-        """Poll until pred(rows) holds - for async lifecycles (any-sdk has no LRO polling)."""
+        """Poll until pred(rows) holds - for async lifecycles (the engine has no LRO polling)."""
         start = time.time()
         last = None
         while time.time() - start < timeout:

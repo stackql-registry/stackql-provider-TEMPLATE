@@ -23,15 +23,16 @@ TODO(template): direct (the vendor publishes OpenAPI / Swagger / a discovery doc
 TODO(template): one bullet each, as they are decided:
 
 - **Authentication** - the `auth.type` and the env var(s), named as the vendor's Terraform provider names them (unless Terraform only offers `TF_VAR_*`, then the vendor CLI's). Fixed API base or a server template.
-- **Scoping** - the server variable and its `x-stackQL-envVar` (or "none - fixed host"); which paths are root paths pinned to the API base; the JOIN-cannot-fan-out consequence and the `UNION ALL` pattern the docs teach.
+- **Scoping** - the server variable and its `x-stackQL-envVar` (or "none - fixed host"); which paths are root paths pinned to the API base; how the docs teach supplying it (the environment variable, a `WHERE` value, a join from a lookup resource, `SET "$.params_by_provider.<provider>"`; the brief's "Engine facts").
 - **The flagship mapping** - the capability the provider exists for and how it is bound.
-- **Casing** - `snake_case_aliases` + `request.nativeCasing` when the wire is camelCase; the accepted column-rename break.
+- **Resource and method naming** - `provider-dev/config/all_services.csv` is the naming dictionary and the source of truth: one row per operation keyed by `filename::operationId`, never rewritten by a build once mapped; the rules name only operations it does not have yet. Names follow the brief's "Resource naming guidance" (no service prefix, reads of the same rows as one resource routed by the `WHERE` clause). Record the conventions settled for this provider here.
+- **Casing** - `snake_case_aliases` + `request.nativeCasing` when the wire is camelCase; snake_case path parameters (post-process rule 10); the accepted column-rename break.
 - **Pagination** - the vendor scheme per endpoint (confirmed in the inventory), placed at the narrowest true level; what is not expressible and is left as parameter-driven windowing.
 - **Update semantics** - PATCH presumed partial; PUT is not REPLACE until proven live.
 - **Skip codes** - the reason codes in use and their counts.
 - **Rate limit** - the documented limit, the harness pacing constant; a 429 in CI is a harness bug.
 - **Labels** - how beta / alpha / deprecated flow into the docs.
-- **Engine typing** - UPDATE marshals every SET value as a string; INSERT and EXEC send typed JSON; EXEC cannot carry a boolean. Documented, not worked around.
+- **Engine typing** - INSERT and UPDATE send numbers and booleans as written and JSON-shaped strings as objects and arrays where the schema property is typed `object` or `array`; an untyped property is sent as a string, so type the properties that carry JSON (the brief's "Engine facts"). Record what the smoke suite proved for this provider.
 
 ## Toolchain rules
 
@@ -47,7 +48,7 @@ bin/                   # fetch-spec.sh, split.mjs, init-provider.sh, server life
 provider-dev/
   downloaded/          # pinned spec snapshot (committed)
   config/              # spec_pin.json, service_names.json, servers.json, provider_config.json,
-                       # endpoint_inventory.csv, all_services.csv (the mapping contract)
+                       # endpoint_inventory.csv, all_services.csv (the naming dictionary)
   scripts/             # record_spec_pin, build_inventory, map_operations, pre_normalize, post_process,
                        # graphql_merge, lib/spec_helpers (the single source of provider constants)
   source/              # split + normalized service specs (committed build artifacts)
@@ -60,8 +61,9 @@ views/<service>/views.yaml   # optional provider views (spliced at generate time
 tests/
   offline_validation.mjs
   integration/         # mock_<name>_server.mjs, run_integration_tests.mjs, probe.mjs
-  smoke_test.py        # pystackql live suite (--live, --read-only, --with-gated-lifecycle, --cleanup-only)
-website/               # Docusaurus microsite (shared stackql/docusaurus-config vendored at build)
+  smoke_test.py        # live suite, stackql exec on pystackql's binary (--live, --read-only, --with-gated-lifecycle, --cleanup-only)
+website/               # Docusaurus microsite (shared stackql/docusaurus-config vendored at build;
+                       # structured data, AEO and stackql-deploy template plugins)
 .github/workflows/     # build-and-test.yml (pin check, build, drift check, 3 test layers, gated smoke,
                        # weekly spec-drift); web deploys (.disabled until GitHub Pages is configured)
 .github/copilot-instructions.md   # GitHub Copilot entry point to this file
@@ -71,9 +73,9 @@ NOTES.md  README.md  SECURITY.md  LICENSE  .env.example
 
 ## Build pipeline
 
-`make all` = `deps build test docs website`: fetch-spec (pin verify) -> inventory -> split -> mappings -> pre-normalize -> normalize -> generate (+ post-process, views, GraphQL merge) -> test-offline -> test-integration -> test-meta -> docs -> website. It never needs credentials and never bills. Every step is deterministic and re-runnable; manual decisions are rules in scripts (`RESOURCE_RULES` / `METHOD_RULES` in `map_operations.mjs`, `SKIP_RULES` in `lib/spec_helpers.mjs`, fix classes in `record_spec_pin.mjs`, passes in `pre_normalize.mjs`, numbered rules in `post_process.mjs`), never hand-edits to CSVs or specs. Validate-and-fail-without-writing is the standard for every script. A regeneration reproduces the committed artifacts byte-for-byte (CI checks this).
+`make all` = `deps build test docs website`: fetch-spec (pin verify) -> inventory -> split -> mappings -> pre-normalize -> normalize -> generate (+ post-process, views, GraphQL merge) -> test-offline -> test-integration -> test-meta -> docs -> website. It never needs credentials and never bills. Every step is deterministic and re-runnable; manual decisions are rules in scripts (`RESOURCE_RULES` / `METHOD_RULES` in `map_operations.mjs`, `SKIP_RULES` in `lib/spec_helpers.mjs`, fix classes in `record_spec_pin.mjs`, passes in `pre_normalize.mjs`, numbered rules in `post_process.mjs`), or for the names of operations already in it, rows of `all_services.csv`; never hand-edits to specs or generated output. Validate-and-fail-without-writing is the standard for every script. A regeneration reproduces the committed artifacts byte-for-byte (CI checks this).
 
-`provider-dev/config/all_services.csv` is committed as the durable record of every operation -> resource.method mapping; a diff there on a regeneration is a breaking-change review (a method moving resource, a resource renamed), not noise.
+`provider-dev/config/all_services.csv` is the naming dictionary: committed, keyed by `filename::operationId`, and the source of truth for every operation it maps. `make mappings` never deletes it: `analyze` appends rows for new operationIds and `map_operations.mjs` names only those, from the rules. To rename a resource or method, edit its row and run `make build && make test`. A diff there is a breaking-change review (a method moving resource, a resource renamed), not noise.
 
 ## Tests
 
@@ -86,7 +88,7 @@ Never run tests against a production account.
 
 ## Docs and publish
 
-`make docs` (generate with `--snake-case-aliases` and `--source-project $(SOURCE_PROJECT)`, then `sanitize-docs`) and `make website`; `website/docs` is committed after every regeneration so pages stamp with their regeneration date. Publishing to the registry is a separate, human-in-the-loop step (push the generated provider dir to `providers/src` in a feature branch of `stackql-provider-registry`, follow the release flow, verify with `make smoke-live`).
+`make docs` (generate with `--snake-case-aliases` and `--source-project $(SOURCE_PROJECT)`, then `sanitize-docs`) and `make website`; `website/docs` is committed after every regeneration so pages stamp with their regeneration date. The site carries the three StackQL Docusaurus plugins at their latest versions: `@stackql/docusaurus-plugin-structured-data` (through the shared config's `withStructuredData`), `@stackql/docusaurus-plugin-aeo` (`llms.txt`, Markdown companions, the Ask AI button) and `@stackql/docusaurus-plugin-stackql-deploy-template` (the stackql-deploy template menu on resource pages, registered after the AEO plugin); `website/yarn.lock` is refreshed with `yarn install` whenever one changes and committed before the deploy workflows are enabled. `website/static/robots.txt` allows every crawler, search engine and AI agent, points agents at `llms.txt` and `llms-full.txt`, and names the sitemap. Publishing to the registry is a separate, human-in-the-loop step (push the generated provider dir to `providers/src` in a feature branch of `stackql-provider-registry`, follow the release flow, verify with `make smoke-live`).
 
 ## Writing conventions
 
@@ -100,7 +102,7 @@ These apply to every piece of text the build generates, whoever or whatever read
 
 1. Latest `@stackql/provider-utils`, always
 2. The skill is the procedure; sibling-build NOTES.md findings (the repos in the skill's reference-repos.md) are reused, not re-derived - deviate only with a documented reason in NOTES.md
-3. Deterministic scripts, never hand-edits to derived artifacts
+3. Deterministic scripts, never hand-edits to derived artifacts (`all_services.csv` is not derived: it is the naming dictionary, edited by hand to rename)
 4. Every regeneration is followed by `make test` before commit
 5. Test harnesses pace under the rate limit - a 429 in CI is a harness bug
 6. Smoke tests clean up everything they create and restore anything they toggle

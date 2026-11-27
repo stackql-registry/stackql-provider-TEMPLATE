@@ -1,12 +1,12 @@
 name: Test deployment
 
+# Builds the site (no deploy) on every pull request raised to main, whatever
+# the pull request changes.
 on:
   pull_request:
     branches:
       - main
-    paths:
-      - 'website/**'
-      
+
 jobs:
   test-deploy:
     name: Test deployment

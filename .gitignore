@@ -44,7 +44,7 @@ website/.cache-loader/
 # refresh is then a reviewable diff against the hash pin in
 # provider-dev/config/spec_pin.json. So are provider-dev/source (split and
 # normalized service specs), provider-dev/openapi (the generated provider),
-# provider-dev/config/all_services.csv (the mapping contract) and
+# provider-dev/config/all_services.csv (the naming dictionary) and
 # website/docs (so pages stamp with their regeneration date).
 
 # integration test registry copy (rebuilt every run)

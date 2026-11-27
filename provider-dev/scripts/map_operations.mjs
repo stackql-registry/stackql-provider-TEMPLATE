@@ -26,14 +26,17 @@
 //   POST read segment         -> SELECT <resource>.list (objectKey set in post_process)
 //   skip rules                -> skip_this_resource (reason-coded in the inventory)
 //
-// Validates before writing: every CSV row mapped or skipped with a reason,
-// every spec operation present in the CSV, (service, resource, method)
-// unique, and unique required-parameter signatures per (resource, sqlVerb).
-// Fails without writing on violations.
+// Validates every row before writing, whether the rules or a hand edit named
+// it: every spec operation present in the CSV, names lower snake_case, a
+// known stackql_verb, (service, resource, method) unique, unique
+// required-parameter signatures per (service, resource, sqlVerb), and every
+// RESOURCE_RULES / METHOD_RULES entry matching an operation. Fails without
+// writing on violations.
 //
 // Usage: npm run map-operations [-- --report] [-- --out other.csv]
-//   --report prints every derived mapping without writing - the fastest way
-//   to design RESOURCE_RULES / METHOD_RULES for a new service.
+//   --report prints the mapping and the rows where the dictionary differs
+//   from what the rules derive, without writing - the fastest way to design
+//   RESOURCE_RULES / METHOD_RULES for a new service.
 
 import fs from 'fs';
 import path from 'path';
@@ -232,6 +235,16 @@ for (const [key, entry] of ops) {
   specOps.set(idKey, { filename, pathKey, verb });
 }
 
+// Every rule must match an operation of the spec: a rule left behind by an
+// upstream change fails the run instead of silently doing nothing.
+const opKeys = [...ops.keys()].map((k) => { const [filename, pathKey, verb] = k.split('::'); return { service: filename.replace(/\.yaml$/, ''), norm: normalizePath(pathKey), verb }; });
+for (const r of RESOURCE_RULES) {
+  if (!opKeys.some((o) => (!r.service || r.service === o.service) && (!r.verb || r.verb === o.verb) && r.re.test(o.norm))) errors.push(`RESOURCE_RULES entry ${r.re} (${r.resource}) matched no operation`);
+}
+for (const r of METHOD_RULES) {
+  if (!opKeys.some((o) => r.verb === o.verb && r.re.test(o.norm))) errors.push(`METHOD_RULES entry ${r.verb} ${r.re} (${r.method}) matched no operation`);
+}
+
 // Merge the dictionary with the spec: mapped rows are kept as they are;
 // rows of removed operations and the duplicates analyze appends (it treats
 // a row without a method, such as skip_this_resource, as unmapped) are
@@ -321,10 +334,17 @@ rows.splice(1, rows.length - 1, ...kept);
 
 const methodSeen = new Map();
 const sigSeen = new Map();
+const SQL_VERBS = ['select', 'insert', 'update', 'replace', 'delete', 'exec'];
 for (const row of rows.slice(1)) {
   const resource = row[col.stackql_resource_name];
   if (!resource || resource === 'skip_this_resource') continue;
   const service = row[col.filename].replace(/\.yaml$/, '');
+  // every row is validated, whether the rules or a hand edit named it
+  const where = `${row[col.filename]}::${row[col.operationId]}`;
+  for (const ident of [resource, row[col.stackql_method_name]]) {
+    if (!/^[a-z][a-z0-9_]*$/.test(ident)) errors.push(`${service}: '${ident}' is not a lower snake_case identifier (${where})`);
+  }
+  if (!SQL_VERBS.includes(row[col.stackql_verb])) errors.push(`${service}.${resource}.${row[col.stackql_method_name]}: unknown stackql_verb '${row[col.stackql_verb]}' (${where})`);
   const methodKey = `${service}.${resource}.${row[col.stackql_method_name]}`;
   if (methodSeen.has(methodKey)) {
     errors.push(`duplicate method ${methodKey} (${methodSeen.get(methodKey)} and ${row[col.path]}:${row[col.verb]}) - add a RESOURCE_RULES or METHOD_RULES entry`);
@@ -352,6 +372,34 @@ if (report) {
   for (const row of rows.slice(1)) {
     console.log([row[col.filename].replace(/\.yaml$/, ''), row[col.stackql_resource_name], row[col.stackql_method_name], row[col.stackql_verb], row[col.stackql_object_key], row[col.path], row[col.verb]].join(','));
   }
+  // Where the dictionary and the rules disagree: a hand rename, or a rule
+  // changed after the row was named (blank stackql_resource_name to have the
+  // rules name it again). Run `make split` first: after normalize, wrapped
+  // bare-array reads differ in objectKey only.
+  const fresh = new Set(named.map((n) => n.row));
+  const drift = [];
+  for (const row of rows.slice(1)) {
+    if (fresh.has(row)) continue;
+    const m = mapOperation(row[col.filename], row[col.path], row[col.verb]);
+    if (m.error) continue;
+    const service = row[col.filename].replace(/\.yaml$/, '');
+    let resource = m.resource;
+    if (resource !== SKIP) {
+      // the service-prefix strip applied to newly named rows
+      const words = service.split('_');
+      const forms = [...new Set([service, [...words.slice(0, -1), pluralize.singular(words[words.length - 1])].join('_')])].sort((a, b) => b.length - a.length);
+      const form = forms.find((f) => resource.startsWith(`${f}_`));
+      const rest = form ? resource.slice(form.length + 1) : '';
+      // a collision is another resource of the service already named `rest`
+      const taken = (byService.get(service) || new Set()).has(rest) && rest !== row[col.stackql_resource_name];
+      if (rest && !NOT_A_NAME_START.has(rest.split('_')[0]) && !taken) resource = rest;
+    }
+    const derived = resource === SKIP ? [SKIP, '', '', ''] : [resource, m.method, m.sqlVerb, m.objectKey || ''];
+    const current = namesOf(row);
+    if (derived.join('|') !== current.join('|')) drift.push(`  ${row[col.filename]}::${row[col.operationId]}: dictionary ${current.filter(Boolean).join(' ')} | rules ${derived.filter(Boolean).join(' ')}`);
+  }
+  console.log(`\nRows where the dictionary differs from the rules: ${drift.length}`);
+  for (const d of drift) console.log(d);
 }
 if (errors.length > 0) {
   console.error(`FAILED with ${errors.length} error(s), nothing written:`);

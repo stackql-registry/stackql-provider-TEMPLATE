@@ -20,6 +20,12 @@
 //
 // 3. Landing-page resource count. docgen's total includes each service
 //    index page; recount from the generated service directories.
+//
+// 4. Vendor in-page anchors. Vendor descriptions often link to sections of the
+//    vendor's own documentation page with bare anchors ([paginated](#pagination),
+//    [asynchronous](#async)); on this site they resolve to anchors that do not
+//    exist. Outside code, a link to an anchor the page does not define (no
+//    heading slug, id or name) loses its markup and keeps its text.
 
 import fs from 'node:fs';
 import path from 'node:path';
@@ -48,6 +54,27 @@ const CLOSE = '';
 let filesChanged = 0;
 let cellsEscaped = 0;
 let scopeAnnotated = 0;
+let anchorsUnlinked = 0;
+const VENDOR_ANCHOR = /\[([^\]\n]+)\]\(#[^)\s]*\)/g;
+// the anchors a page defines: heading slugs and id / name attributes
+function pageAnchors(text) {
+  const anchors = new Set();
+  for (const line of text.split('\n')) {
+    const h = /^#{1,6}\s+(.+?)\s*$/.exec(line);
+    if (h) anchors.add(h[1].toLowerCase().replace(/<[^>]*>/g, '').replace(/[`*_]/g, '').trim().replace(/[^a-z0-9 -]/g, '').replace(/\s+/g, '-'));
+    for (const m of line.matchAll(/\b(?:id|name)="([^"]+)"/g)) anchors.add(m[1]);
+  }
+  return anchors;
+}
+let currentAnchors = new Set();
+function unlinkVendorAnchors(line) {
+  return line.replace(VENDOR_ANCHOR, (m, text) => {
+    const target = m.slice(m.lastIndexOf('(#') + 2, -1);
+    if (currentAnchors.has(target)) return m;
+    anchorsUnlinked++;
+    return text;
+  });
+}
 
 function annotateScope(lines) {
   if (!SCOPE_VAR || !SCOPE_ENV) return false;
@@ -90,6 +117,7 @@ function escapeTemplateLiteral(line) {
 }
 
 function sanitize(text) {
+  currentAnchors = pageAnchors(text);
   const lines = text.split('\n');
   let changed = annotateScope(lines);
   let inFence = false;
@@ -100,6 +128,10 @@ function sanitize(text) {
     const trimmed = line.trim();
     if (trimmed.startsWith('```')) { inFence = !inFence; continue; }
     if (inFence) continue;
+    if (!inCodeBlock && !/<CodeBlock\b/.test(line) && line.includes('](#')) {
+      const unlinked = unlinkVendorAnchors(line);
+      if (unlinked !== line) { lines[i] = unlinked; changed = true; }
+    }
     if (inCodeBlock) {
       if (/<\/CodeBlock>/.test(line)) inCodeBlock = false;
       const esc = escapeTemplateLiteral(line);
@@ -200,4 +232,4 @@ if (!fs.existsSync(docsDir)) {
 }
 walk(docsDir);
 const recount = fixResourceCount();
-console.log(`sanitize-docs: escaped ${cellsEscaped} description cell(s) across ${filesChanged} file(s); ${scopeAnnotated} scope annotation(s)${recount ? `; landing page resource count set to ${recount}` : ''}`);
+console.log(`sanitize-docs: escaped ${cellsEscaped} description cell(s) across ${filesChanged} file(s); ${scopeAnnotated} scope annotation(s); ${anchorsUnlinked} vendor in-page anchor(s) unlinked${recount ? `; landing page resource count set to ${recount}` : ''}`);

@@ -1,70 +1,41 @@
 #!/usr/bin/env node
 
+// Meta-route walk: every service, resource and method of the provider is
+// visited with SHOW / DESCRIBE against a local stackql server (pgwire).
+// A service with no resources, a resource with no methods, two methods of
+// one SQL verb with the same required-parameter signature, or a selectable
+// resource whose DESCRIBE EXTENDED returns no columns fails the run - fix
+// the mapping (skip-code, or inject a schema), never the test.
+//
+// Services are walked by a bounded pool of workers (--concurrency, default
+// 8), so a large provider finishes in minutes. Each service's output is
+// buffered and printed when the service finishes, so the log stays readable.
+//
+// Usage: node bin/test-meta-routes.cjs <provider> [--port 5444] [--host 127.0.0.1]
+//                                      [--concurrency 8] [--verbose] [--timeout 60000]
+
 const { runQuery } = require('@stackql/pgwire-lite');
-const fs = require('fs');
-const path = require('path');
 
-// Get current directory
-const baseDir = path.resolve(path.dirname(process.argv[1]), '..');
-
-// Default connection settings
-const defaultOptions = {
-  user: 'stackql',
-  database: 'stackql',
-  // IPv4 loopback, not 'localhost': stackql srv binds 0.0.0.0 and Node
-  // resolves 'localhost' to ::1 first, which refuses the connection
-  host: '127.0.0.1',
-  port: 5444,
-  debug: false,
-};
-
-// Parse command line arguments
 const args = process.argv.slice(2);
 let provider = null;
-let port = 5444;
+// IPv4 loopback, not 'localhost': stackql srv binds 0.0.0.0 and Node
+// resolves 'localhost' to ::1 first, which refuses the connection
 let host = '127.0.0.1';
+let port = 5444;
 let verbose = false;
-let outputFormat = 'json';
-let timeoutMs = 60000; // Default timeout: 60 seconds
+let timeoutMs = 60000;
+let concurrency = 8;
 
 for (let i = 0; i < args.length; i++) {
   if (args[i].startsWith('--')) {
     switch (args[i]) {
-      case '--port':
-        port = parseInt(args[++i], 10);
-        break;
-      case '--host':
-        host = args[++i];
-        break;
-      case '--verbose':
-        verbose = true;
-        break;
-      case '--format':
-        outputFormat = args[++i];
-        if (!['json', 'csv', 'markdown'].includes(outputFormat)) {
-          console.error(`Error: Invalid output format "${outputFormat}". Must be json, csv, or markdown.`);
-          process.exit(1);
-        }
-        break;
-      case '--timeout':
-        timeoutMs = parseInt(args[++i], 10);
-        break;
+      case '--port': port = parseInt(args[++i], 10); break;
+      case '--host': host = args[++i]; break;
+      case '--verbose': verbose = true; break;
+      case '--timeout': timeoutMs = parseInt(args[++i], 10); break;
+      case '--concurrency': concurrency = Math.max(1, parseInt(args[++i], 10)); break;
       case '--help':
-        console.log(`
-Usage: test-meta-routes.js <provider> [OPTIONS]
-
-Test all metadata routes for a StackQL provider.
-
-Arguments:
-  provider                  Name of the provider to test
-
-Options:
-  --port PORT               Server port (default: 5444)
-  --verbose                 Enable verbose output
-  --format FORMAT           Output format: json, csv, markdown (default: json)
-  --timeout MILLISECONDS    Query timeout in milliseconds (default: 60000)
-  --help                    Display this help message
-        `);
+        console.log('Usage: test-meta-routes.cjs <provider> [--port PORT] [--host HOST] [--concurrency N] [--verbose] [--timeout MILLISECONDS]');
         process.exit(0);
         break;
       default:
@@ -75,31 +46,20 @@ Options:
     provider = args[i];
   }
 }
-
-// Check that provider was specified
 if (!provider) {
   console.error('Error: Provider name must be specified');
-  console.error('Usage: test-meta-routes.js <provider> [OPTIONS]');
+  console.error('Usage: test-meta-routes.cjs <provider> [OPTIONS]');
   process.exit(1);
 }
 
-// Set up connection options
-const connectionOptions = {
-  ...defaultOptions,
-  host,
-  port,
-  // Set query timeout
-  statement_timeout: timeoutMs,
-};
-
-// Get start time
+const connectionOptions = { user: 'stackql', database: 'stackql', host, port, debug: false, statement_timeout: timeoutMs };
 const startTime = new Date();
 
 // resources whose select response is a scalar (text) body - a single
 // anonymous column at query time, so DESCRIBE EXTENDED is legitimately
 // empty. Keep it empty unless a resource genuinely returns a scalar; a
-// response transform in post_process.mjs that yields real columns is the
-// better fix.
+// response transform in post_process.mjs that yields real columns (a {value}
+// row) is the better fix.
 const SCALAR_RESPONSE_RESOURCES = new Set([]);
 
 const results = {
@@ -113,349 +73,138 @@ const results = {
   scalarResponseResources: [],
   failures: [],
   errors: [],
-  summary: { errors: 0 },
+  summary: { errors: 0 }
 };
 
-/**
- * Run a query and handle errors
- * @param {string} query - SQL query to run
- * @param {string} description - Description for logging
- * @returns {Promise<Array>} - Query results
- */
-async function executeQuery(query, description) {
-  if (verbose) {
-    console.log(`Running: ${query}`);
-  } else {
-    process.stdout.write(`${description}... `);
-  }
-  
+// Runs a query; returns its rows ([] when the statement yields none, null
+// when the resource is not selectable). Query errors are recorded.
+async function executeQuery(query, description, out) {
   try {
     const result = await runQuery(connectionOptions, query);
-    
-    if (!verbose) {
-      if (result.data && result.data.length) {
-        console.log(`OK (${result.data.length} rows)`);
-      } else {
-        console.log('OK');
-      }
-    } else {
-      console.info(result.data);
-    }
-    
-    return result.data;
+    const rows = result.data || [];
+    out.push(verbose ? `${description}: ${query} -> ${rows.length} rows` : `${description}... OK${rows.length ? ` (${rows.length} rows)` : ''}`);
+    return rows;
   } catch (error) {
-    if (!verbose) {
-      console.log('FAIL');
-    }
-    
-    results.errors.push({
-      query,
-      description,
-      error: error.message,
-      timestamp: new Date().toISOString()
-    });
-    
+    out.push(`${description}... FAIL`);
+    results.errors.push({ query, description, error: error.message });
     results.summary.errors++;
-    
-    if (error.message.includes('the last operation didn\'t produce a result')) {
-      return [];
-    }
-    
-    if (error.message.includes('SELECT not supported for this resource')) {
-      if (verbose) {
-        console.warn(`  Warning: Resource is not selectable`);
-      }
-      return null;
-    }
-    
-    console.error(`Error executing ${description}: ${error.message}`);
+    if (error.message.includes('the last operation didn\'t produce a result')) return [];
+    if (error.message.includes('SELECT not supported for this resource')) return null;
+    out.push(`Error executing ${description}: ${error.message}`);
     return [];
   }
 }
 
-/**
- * Test all provider meta routes
- */
-async function testMetaRoutes() {
-  try {
-    console.log(`\nTesting meta routes for provider: ${provider}\n`);
-    
-    // SHOW PROVIDERS to verify provider exists
-    const registryQuery = "SHOW PROVIDERS";
-    const providers = await executeQuery(registryQuery, "Checking registry providers");
-    
-    const providerExists = providers && providers.some(p => p.name === provider);
-    if (!providerExists) {
-      console.error(`Error: Provider '${provider}' not found in registry`);
-      if (providers && providers.length > 0) {
-        console.log("Available providers:");
-        providers.forEach(p => console.log(`  - ${p.name}`));
-      }
-      process.exit(1);
-    }
-
-    // SHOW SERVICES IN <provider>
-    const servicesQuery = `SHOW SERVICES IN ${provider}`;
-    const services = await executeQuery(servicesQuery, "Getting services");
-    
-    if (!services || services.length === 0) {
-      console.error(`Error: No services found for provider '${provider}'`);
-      process.exit(1);
-    }
-    
-    console.log(`\nFound ${services.length} services in ${provider}`);
-    results.totalServices += services.length;
-
-    // for each service
-    for (const service of services) {
-      const serviceName = service.name;
-      console.log(`\nProcessing service: ${serviceName}`);
-      
-      // SHOW RESOURCES IN <provider>.<service>
-      const resourcesQuery = `SHOW RESOURCES IN ${provider}.${serviceName}`;
-      const resources = await executeQuery(resourcesQuery, `Getting resources for ${serviceName}`);
-     
-      if (!resources || resources.length === 0) {
-        console.error(`Error: No resources found for ${provider}.${serviceName}`);
-        process.exit(1);
-      }
-      
-      console.log(`Found ${resources.length} resources in ${serviceName}`);
-      results.totalResources += resources.length;
-      
-      // for each resource
-      for (const resource of resources) {
-        const resourceName = resource.name;
-        console.log(`\n  Testing resource: ${resourceName}`);
-        
-        const resourceFQRN = `${provider}.${serviceName}.${resourceName}`;
-        const resourceData = {
-          name: resourceName,
-          service: serviceName,
-          selectable: false,
-          sqlVerbs: {}
-        };
-
-        // SHOW EXTENDED METHODS IN <provider>.<service>.<resource>
-        const methodsQuery = `SHOW EXTENDED METHODS IN ${resourceFQRN}`;
-        const methods = await executeQuery(methodsQuery, `  Getting methods for ${resourceName}`);
-        if (!methods || methods.length === 0) {
-          console.error(`Error: Resource ${resourceName} has no methods`);
-          process.exit(1);
-        } else {
-          console.log(`Found ${methods.length} methods for ${resourceName}`);
-        }
-
-        results.totalMethods += methods.length;
-
-        for (const method of methods) {
-          const methodName = method.MethodName;
-          const sqlVerb = method.SQLVerb || 'exec';
-          
-          if(sqlVerb.toLowerCase() === 'select') {
-            results.selectableMethods++;
-            resourceData.selectable = true;
-          }
-          
-          // Initialize the array if it doesn't exist yet
-          if(!resourceData.sqlVerbs[sqlVerb]) {
-            resourceData.sqlVerbs[sqlVerb] = [];
-          }
-          
-          // Convert comma-delimited list to an array of trimmed values
-          let requiredParamsArray = [];
-          if (method.RequiredParams) {
-            requiredParamsArray = method.RequiredParams
-              .split(',')
-              .map(param => param.trim())
-              .filter(param => param.length > 0);
-          }
-          
-          // Push the method info to the array with the parsed required params
-          resourceData.sqlVerbs[sqlVerb].push({
-            methodName,
-            requiredParams: requiredParamsArray
-          });
-        }
-
-        // non exec methods must have unique signatures within a resource 
-        // in other words no two methods mapped to the same sqlVerb should have the exact same set of required params, order is not important
-        // if this condition is detected, log it and exit the program immediately
-        let hasSelect = false;
-        for (const [verb, methods] of Object.entries(resourceData.sqlVerbs)) {
-          if (verb.toLowerCase() === 'select') {
-            hasSelect = true;
-          }
-          if (verb.toLowerCase() === 'exec') {
-            continue;
-          }
-          const seenSignatures = new Set();
-          for (const method of methods) {
-            const signature = JSON.stringify(method.requiredParams);
-            if (seenSignatures.has(signature)) {
-              console.error(`Error: Duplicate method signature found for ${verb} in ${resourceData.service}.${resourceName}:`, method);
-              process.exit(1);
-            }
-            seenSignatures.add(signature);
-          }
-        }
-
-        if (!hasSelect) {
-          results.nonSelectableResourceCount++;
-          results.nonSelectableResources.push(`${resourceData.service}.${resourceName}`);
-        }
-
-        // Try DESCRIBE EXTENDED if available
-        if(resourceData.selectable) {
-          try {
-            const describeExtendedQuery = `DESCRIBE EXTENDED ${resourceFQRN}`;
-            const extendedColumns = await executeQuery(describeExtendedQuery, `  Describing extended ${resourceName}`);
-
-            if (extendedColumns !== null && extendedColumns.length > 0) {
-              console.log(`Found ${extendedColumns.length} extended columns for ${resourceName}`);
-            } else if (SCALAR_RESPONSE_RESOURCES.has(resourceName)) {
-              // scalar (text) response - a single anonymous column at query
-              // time, so DESCRIBE is legitimately empty
-              console.log(`WARN: no columns for ${resourceName} (known scalar response)`);
-              results.scalarResponseResources.push(`${resourceData.service}.${resourceName}`);
-            } else {
-              console.error(`ERROR: No columns found for ${resourceName}`);
-              results.failures.push(`${resourceData.service}.${resourceName}: DESCRIBE EXTENDED returned no columns`);
-            }
-          } catch (error) {
-            console.error(`Error describing extended ${resourceName}:`, error.message);
-            results.failures.push(`${resourceData.service}.${resourceName}: ${error.message}`);
-          }
-        }
-
-      }
-    }
-    
-    // Calculate execution time
-    const endTime = new Date();
-    const executionTime = (endTime - startTime) / 1000; // in seconds
-    results.executionTime = executionTime;
-    
-    // Output summary
-    console.log("\nTest Summary:");
-    console.info(results);
-
-    if (results.failures.length > 0) {
-      console.error(`\nFAIL ${results.failures.length} failure(s):`);
-      for (const f of results.failures) console.error(`  - ${f}`);
-      process.exit(1);
-    }
-    console.log("\nOK All meta route tests passed");
-
-    // Save results to file
-    // const resultsDir = path.join(baseDir, 'test-results');
-    // if (!fs.existsSync(resultsDir)) {
-    //   fs.mkdirSync(resultsDir, { recursive: true });
-    // }
-    
-    // const timestamp = new Date().toISOString().replace(/[:.]/g, '-');
-    
-    // if (outputFormat === 'json') {
-    //   const resultsFile = path.join(resultsDir, `${provider}-meta-test-${timestamp}.json`);
-    //   fs.writeFileSync(resultsFile, JSON.stringify(results, null, 2));
-    //   console.log(`\nDetailed results saved to: ${resultsFile}`);
-    // } 
-    // else if (outputFormat === 'csv') {
-    //   // Generate CSV files
-      
-    //   // Main summary CSV
-    //   const summaryFile = path.join(resultsDir, `${provider}-meta-test-summary-${timestamp}.csv`);
-    //   const summaryCSV = [
-    //     'Provider,Timestamp,Services,Resources,Methods,Selectable,Insertable,Updatable,Deletable,Executable,Errors,ExecutionTime',
-    //     `${provider},${results.timestamp},${results.summary.totalServices},${results.summary.totalResources},${results.summary.totalMethods},${results.summary.selectableMethods},${results.summary.insertableMethods},${results.summary.updatableMethods},${results.summary.deletableMethods},${results.summary.executableMethods},${results.summary.errors},${results.executionTime}`
-    //   ].join('\n');
-    //   fs.writeFileSync(summaryFile, summaryCSV);
-      
-    //   // Services CSV
-    //   const servicesFile = path.join(resultsDir, `${provider}-meta-test-services-${timestamp}.csv`);
-    //   const servicesCSV = [
-    //     'Service,Title,ResourceCount',
-    //     ...results.services.map(s => `${s.name},${s.title || ''},${s.resourceCount || 0}`)
-    //   ].join('\n');
-    //   fs.writeFileSync(servicesFile, servicesCSV);
-      
-    //   // Resources CSV
-    //   const resourcesFile = path.join(resultsDir, `${provider}-meta-test-resources-${timestamp}.csv`);
-    //   const resourcesCSV = [
-    //     'Service,Resource,FQRN,Selectable,ColumnCount,MethodCount',
-    //     ...results.resources.map(r => `${r.service},${r.name},${r.fqrn},${r.selectable},${r.columnCount || 0},${r.methodCount || 0}`)
-    //   ].join('\n');
-    //   fs.writeFileSync(resourcesFile, resourcesCSV);
-      
-    //   // Methods CSV
-    //   const methodsFile = path.join(resultsDir, `${provider}-meta-test-methods-${timestamp}.csv`);
-    //   const methodsCSV = [
-    //     'Service,Resource,Method,SQLVerb,FQRN',
-    //     ...results.methods.map(m => `${m.service},${m.resource},${m.name},${m.sqlVerb},${m.fqrn}`)
-    //   ].join('\n');
-    //   fs.writeFileSync(methodsFile, methodsCSV);
-      
-    //   console.log(`\nDetailed results saved to CSV files in: ${resultsDir}`);
-    // }
-    // else if (outputFormat === 'markdown') {
-    //   const mdFile = path.join(resultsDir, `${provider}-meta-test-${timestamp}.md`);
-      
-    //   const markdownContent = [
-    //     `# StackQL Provider Test Results: ${provider}`,
-    //     '',
-    //     `Test run: ${results.timestamp}`,
-    //     '',
-    //     '## Summary',
-    //     '',
-    //     '| Metric | Count |',
-    //     '|--------|-------|',
-    //     `| Services | ${results.summary.totalServices} |`,
-    //     `| Resources | ${results.summary.totalResources} |`,
-    //     `| Methods | ${results.summary.totalMethods} |`,
-    //     `| Errors | ${results.summary.errors} |`,
-    //     `| Execution Time | ${results.executionTime.toFixed(2)} seconds |`,
-    //     '',
-    //     '### Methods by SQL Verb',
-    //     '',
-    //     '| Verb | Count |',
-    //     '|------|-------|',
-    //     ...Object.entries(results.verbs).map(([verb, count]) => `| ${verb.toUpperCase()} | ${count} |`),
-    //     '',
-    //     '## Services',
-    //     '',
-    //     '| Service | Resources |',
-    //     '|---------|-----------|',
-    //     ...results.services.map(s => `| ${s.name} | ${s.resourceCount || 0} |`),
-    //     '',
-    //     '## Resources with Most Methods',
-    //     '',
-    //     '| Resource | Service | Methods | Selectable |',
-    //     '|----------|---------|---------|------------|',
-    //     ...results.resources
-    //       .sort((a, b) => (b.methodCount || 0) - (a.methodCount || 0))
-    //       .slice(0, 20)
-    //       .map(r => `| ${r.name} | ${r.service} | ${r.methodCount || 0} | ${r.selectable ? 'OK' : 'FAIL'} |`),
-    //     '',
-    //     '## Errors',
-    //     '',
-    //     results.errors.length > 0 
-    //       ? [
-    //           '| Query | Error |',
-    //           '|-------|-------|',
-    //           ...results.errors.map(e => `| \`${e.query}\` | ${e.error} |`)
-    //         ].join('\n')
-    //       : 'No errors encountered during testing.',
-    //   ].join('\n');
-      
-    //   fs.writeFileSync(mdFile, markdownContent);
-    //   console.log(`\nDetailed results saved to: ${mdFile}`);
-    // }
-    
-  } catch (error) {
-    console.error('Error in meta routes test:', error);
-    process.exit(1);
+async function walkService(serviceName) {
+  const out = [`\nProcessing service: ${serviceName}`];
+  const resources = await executeQuery(`SHOW RESOURCES IN ${provider}.${serviceName}`, `Getting resources for ${serviceName}`, out);
+  if (!resources || resources.length === 0) {
+    results.failures.push(`${serviceName}: no resources found`);
+    return out;
   }
+  results.totalResources += resources.length;
+
+  for (const resource of resources) {
+    const resourceName = resource.name;
+    const resourceFQRN = `${provider}.${serviceName}.${resourceName}`;
+    const sqlVerbs = {};
+    let selectable = false;
+
+    const methods = await executeQuery(`SHOW EXTENDED METHODS IN ${resourceFQRN}`, `  ${resourceName}: methods`, out);
+    if (!methods || methods.length === 0) {
+      results.failures.push(`${serviceName}.${resourceName}: no methods`);
+      continue;
+    }
+    results.totalMethods += methods.length;
+
+    for (const method of methods) {
+      const sqlVerb = method.SQLVerb || 'exec';
+      if (sqlVerb.toLowerCase() === 'select') {
+        results.selectableMethods++;
+        selectable = true;
+      }
+      if (!sqlVerbs[sqlVerb]) sqlVerbs[sqlVerb] = [];
+      const requiredParams = (method.RequiredParams || '').split(',').map((p) => p.trim()).filter((p) => p.length > 0);
+      sqlVerbs[sqlVerb].push({ methodName: method.MethodName, requiredParams });
+    }
+
+    // non-exec methods must have unique required-parameter signatures within
+    // a resource (order is not important) or a statement cannot be routed
+    for (const [verb, verbMethods] of Object.entries(sqlVerbs)) {
+      if (verb.toLowerCase() === 'exec') continue;
+      const seen = new Map();
+      for (const method of verbMethods) {
+        const signature = JSON.stringify([...method.requiredParams].sort());
+        if (seen.has(signature)) results.failures.push(`${serviceName}.${resourceName}: ${verb} methods ${seen.get(signature)} and ${method.methodName} share the signature ${signature}`);
+        seen.set(signature, method.methodName);
+      }
+    }
+
+    if (!selectable) {
+      results.nonSelectableResourceCount++;
+      results.nonSelectableResources.push(`${serviceName}.${resourceName}`);
+      continue;
+    }
+    const columns = await executeQuery(`DESCRIBE EXTENDED ${resourceFQRN}`, `  ${resourceName}: describe extended`, out);
+    if (columns !== null && columns.length > 0) continue;
+    if (SCALAR_RESPONSE_RESOURCES.has(resourceName)) {
+      out.push(`WARN: no columns for ${resourceName} (known scalar response)`);
+      results.scalarResponseResources.push(`${serviceName}.${resourceName}`);
+    } else {
+      out.push(`ERROR: No columns found for ${resourceName}`);
+      results.failures.push(`${serviceName}.${resourceName}: DESCRIBE EXTENDED returned no columns`);
+    }
+  }
+  return out;
 }
 
-// Run the tests
-testMetaRoutes();
+async function testMetaRoutes() {
+  console.log(`\nTesting meta routes for provider: ${provider} (concurrency ${concurrency})\n`);
+  const head = [];
+  const providers = await executeQuery('SHOW PROVIDERS', 'Checking registry providers', head);
+  if (!providers || !providers.some((p) => p.name === provider)) {
+    console.error(`Error: Provider '${provider}' not found in registry`);
+    for (const p of providers || []) console.log(`  - ${p.name}`);
+    process.exit(1);
+  }
+  const services = await executeQuery(`SHOW SERVICES IN ${provider}`, 'Getting services', head);
+  for (const line of head) console.log(line);
+  if (!services || services.length === 0) {
+    console.error(`Error: No services found for provider '${provider}'`);
+    process.exit(1);
+  }
+  console.log(`\nFound ${services.length} services in ${provider}`);
+  results.totalServices = services.length;
+
+  const queue = services.map((s) => s.name);
+  let done = 0;
+  async function worker() {
+    while (queue.length > 0) {
+      const serviceName = queue.shift();
+      const out = await walkService(serviceName);
+      done++;
+      if (verbose) for (const line of out) console.log(line);
+      else console.log(`[${done}/${services.length}] ${serviceName}: ${out.filter((l) => l.includes(': methods')).length} resources walked${out.some((l) => l.startsWith('ERROR') || l.startsWith('Error')) ? ' - see failures' : ''}`);
+    }
+  }
+  await Promise.all(Array.from({ length: Math.min(concurrency, services.length) }, worker));
+
+  results.nonSelectableResources.sort();
+  results.failures.sort();
+  results.executionTime = (new Date() - startTime) / 1000;
+
+  console.log('\nTest Summary:');
+  console.info(results);
+
+  if (results.failures.length > 0) {
+    console.error(`\nFAIL ${results.failures.length} failure(s):`);
+    for (const f of results.failures) console.error(`  - ${f}`);
+    process.exit(1);
+  }
+  console.log('\nOK All meta route tests passed');
+}
+
+testMetaRoutes().catch((error) => {
+  console.error('Error in meta routes test:', error);
+  process.exit(1);
+});

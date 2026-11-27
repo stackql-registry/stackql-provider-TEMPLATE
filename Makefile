@@ -95,9 +95,10 @@ generate: ## generate the provider (servers, auth, naive request bodies, views),
 # Add `--service-config $(CONFIG_DIR)/service_config.json` to generate when
 # a document-level x-stackQL-config (pagination, variations,
 # queryParamPushdown) applies to every service; `--skip-files '["x.yaml"]'`
-# for a split service that must not ship; `--update-path-param-names` when
-# the vendor's path parameters are camelCase. Views under ./views/<service>/
-# views.yaml are spliced automatically.
+# for a split service that must not ship. Not --update-path-param-names:
+# post_process.mjs rule 10 renames camelCase path parameters to snake_case
+# last, after the rules that match the vendor's path keys. Views under
+# ./views/<service>/views.yaml are spliced automatically.
 
 post-process: ## re-apply everything the generator cannot express (numbered rules in post_process.mjs)
 	npm run post-process

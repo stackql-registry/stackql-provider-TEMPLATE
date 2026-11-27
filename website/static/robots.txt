@@ -1,0 +1,31 @@
+# robots.txt for myprovider-provider.stackql.io, the StackQL myprovider provider docs.
+# Every crawler, search engine and AI agent may read every page. For agents
+# the docs are also published as llms.txt (an index of every page) and
+# llms-full.txt (every page as Markdown), and each page has a Markdown copy
+# at <page>/index.md.
+#   https://myprovider-provider.stackql.io/llms.txt
+#   https://myprovider-provider.stackql.io/llms-full.txt
+
+User-agent: *
+Allow: /
+
+# AI crawlers and assistant fetchers, named so the intent is explicit (the
+# group above already allows them).
+User-agent: GPTBot
+User-agent: OAI-SearchBot
+User-agent: ChatGPT-User
+User-agent: ClaudeBot
+User-agent: Claude-User
+User-agent: Claude-SearchBot
+User-agent: PerplexityBot
+User-agent: Perplexity-User
+User-agent: Google-Extended
+User-agent: Applebot-Extended
+User-agent: Meta-ExternalAgent
+User-agent: Amazonbot
+User-agent: DuckAssistBot
+User-agent: MistralAI-User
+User-agent: CCBot
+Allow: /
+
+Sitemap: https://myprovider-provider.stackql.io/sitemap.xml
