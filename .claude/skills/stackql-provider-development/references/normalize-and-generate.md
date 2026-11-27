@@ -38,7 +38,7 @@ node provider-dev/scripts/post_process.mjs
 - `--service-config` becomes the document-level `x-stackQL-config` on every service (document-level `pagination`, `variations`, `queryParamPushdown`).
 - `--naive-req-body-translate` emits `config.requestBodyTranslate.algorithm: naive` on every POST/PUT/PATCH with a body, so body properties are plain columns (`INSERT INTO t (name, value)`) rather than `data__name`. It is not emitted for DELETE bodies - add it in post-process. It cannot address a bare-array body (request-response-shaping.md).
 - `--views-dir` defaults to `./views` when the directory exists (provider-views.md).
-- `--update-path-param-names` snake_cases path parameter names in the paths and parameters (use when the vendor's are camelCase and you want `WHERE instance_id`).
+- `--update-path-param-names` snake_cases path parameter names in the paths and parameters. Do not use it: it renames them before post-process, so post-process rules can no longer match the vendor's path keys. The last post-process rule renames path parameters to snake_case instead (request-response-shaping.md).
 
 Output: `provider-dev/openapi/src/<name>/v00.00.00000/provider.yaml` + `services/*.yaml`. Each service carries `components.x-stackQL-resources.<resource>` with `methods.<name>` (`operation.$ref`, `request`, `response`, `config`) and `sqlVerbs` (`select`/`insert`/`update`/`delete`/`replace` lists of method refs). **EXEC is the fallback bin**: a method omitted from every `sqlVerbs` list is EXEC.
 

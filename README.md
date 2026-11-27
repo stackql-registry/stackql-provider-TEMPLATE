@@ -1,6 +1,6 @@
 # StackQL provider template
 
-A template repository for building a [StackQL](https://github.com/stackql/stackql) provider to the current standard: a deterministic `make` pipeline from a pinned upstream spec to a generated provider, every any-sdk primitive available where the API warrants it (snake_case surface, request and response transforms, pagination, query-parameter pushdown, `x-stackQL-envVar` scoping, `objectKey`, lifecycle `EXEC` methods, GraphQL merge, provider views), three credential-free test layers, a budgeted live smoke suite, a Docusaurus microsite and CI.
+A template repository for building a [StackQL](https://github.com/stackql/stackql) provider to the current standard: a deterministic `make` pipeline from a pinned upstream spec to a generated provider, every engine primitive available where the API warrants it (snake_case surface, request and response transforms, pagination, query-parameter pushdown, `x-stackQL-envVar` scoping, `objectKey`, lifecycle `EXEC` methods, GraphQL merge, provider views), three credential-free test layers, a budgeted live smoke suite, a Docusaurus microsite and CI.
 
 The procedure is the bundled Claude Code skill, [`.claude/skills/stackql-provider-development`](.claude/skills/stackql-provider-development/SKILL.md). The repository is laid out so a coding agent session (or a person) can complete it for a given provider by working the skill's steps in order; every decision left open is marked `TODO(template)`. The skill also uplifts an existing provider repository - copy the `.claude/skills` directory there and start from its `references/uplift-checklist.md`.
 
@@ -9,7 +9,7 @@ The rest of this file is the shape of the finished provider README (numbered bui
 ## Using the template
 
 1. Create the repository from this template (GitHub "Use this template", or clone and re-init) and run `npm install`.
-2. Rewrite the placeholders: `bin/init-provider.sh <name> "<Title>" [https://api.vendor.com]` replaces `myprovider`, `My Provider`, `MYPROVIDER`, `api.example.com` and the `stackql-provider-myprovider` repository slug across the files that carry them (`grep -rn myprovider .` afterwards should find nothing outside `.claude/`).
+2. Rewrite the placeholders: `bin/init-provider.sh <name> "<Title>" [https://api.vendor.com]` replaces `myprovider`, `My Provider`, `MYPROVIDER`, `api.example.com` and the `stackql-provider-myprovider` repository slug across the files that carry them (the script ends by listing any left; `.claude/` and the script itself name them on purpose).
 3. Fill the constants in `provider-dev/scripts/lib/spec_helpers.mjs` (`SPEC_URL`, `SPEC_FILE`, `PATH_VERSION_PREFIX`, `SCOPE_PREFIX` / `ROOT_PATHS` for a scoped API, `WIRE_CASING`) and `provider-dev/config/` (`servers.json`, `provider_config.json`, `service_names.json`). `SOURCE_PROJECT` in the Makefile defaults to `https://github.com/stackql-registry/stackql-provider-<name>`; set it to the repository's own URL when it lives elsewhere.
 4. Open a coding agent session in the repository (Claude Code, GitHub Copilot or Codex) and ask it to build the provider, handing it [provider_development.md](provider_development.md) (the brief: goal, standard, reference builds and the current engine facts) as the task statement - it picks up [AGENTS.md](AGENTS.md), the shared project guidance (Codex directly, Claude Code through `CLAUDE.md`, GitHub Copilot through `.github/copilot-instructions.md`), and the skill it points to. Or work the skill's steps by hand: `make fetch-spec`, `make inventory`, add service rules, `make split`, `make mappings-report` / `make mappings`, and so on to `make all`.
 5. `grep -rn "TODO(template)" --exclude-dir=node_modules .` lists what is still open.
@@ -18,7 +18,7 @@ What the template is not: a publisher. Publishing to the public registry is a se
 
 ## What is StackQL
 
-[StackQL](https://github.com/stackql/stackql) is an open-source SQL interface for cloud and SaaS APIs. A provider is a versioned set of OpenAPI documents plus `x-stackQL-resources` extensions that the [any-sdk](https://github.com/stackql/any-sdk) engine turns into SQL tables: `SELECT` for reads, `INSERT` / `UPDATE` / `REPLACE` / `DELETE` for lifecycle, `EXEC` for actions, with `json_extract` over nested fields and joins across providers.
+[StackQL](https://github.com/stackql/stackql) is an open-source SQL interface for cloud and SaaS APIs. A provider is a versioned set of OpenAPI documents plus `x-stackQL-resources` extensions that the [omnisdk](https://github.com/stackql-labs/omnisdk) engine (stackql >= v1.1.959) turns into SQL tables: `SELECT` for reads, `INSERT` / `UPDATE` / `REPLACE` / `DELETE` for lifecycle, `EXEC` for actions, with `json_extract` over nested fields and joins across providers.
 
 ## Prerequisites
 
@@ -74,13 +74,13 @@ TODO(template): the inventory counts (operations, mapped, skipped by reason code
 ## 2. Mappings
 
 ```bash
-make mappings-report   # print every derived mapping without writing
-make mappings          # regenerate all_services.csv from scratch and apply the rules
+make mappings-report   # print the mapping and the rows that differ from the rules, without writing
+make mappings          # add new operations to all_services.csv (named by the rules); mapped rows are kept
 ```
 
-`provider-dev/scripts/map_operations.mjs` fills `stackql_resource_name`, `stackql_method_name`, `stackql_verb` and `stackql_object_key` from the mechanical derivation plus `RESOURCE_RULES` / `METHOD_RULES`, and validates: every row mapped or skipped with a reason, every spec operation present, `(service, resource, method)` unique, unique required-parameter signatures per `(resource, sqlVerb)`. Fails without writing on any violation.
+`provider-dev/config/all_services.csv` is the naming dictionary: one row per operation, keyed by `filename::operationId`, committed, and the source of truth for the resource, method, SQL verb and objectKey of every operation it maps. A build never rewrites a mapped row. `make mappings` runs provider-utils `analyze`, which appends a blank row for each new operationId, then `provider-dev/scripts/map_operations.mjs`, which names only the rows with no `stackql_resource_name` (the mechanical derivation plus `RESOURCE_RULES` / `METHOD_RULES`), follows operations that moved or were renamed, drops removed ones, and validates every row: every spec operation present, names lower snake_case, `(service, resource, method)` unique, unique required-parameter signatures per `(service, resource, sqlVerb)`, every rule matching. It fails without writing on any violation.
 
-`provider-dev/config/all_services.csv` is the committed contract of every operation -> resource.method mapping; a diff on regeneration is a breaking-change review.
+To rename a resource or method, edit its row and run `make build && make test`; to have the rules name an operation again, blank its `stackql_resource_name`. A diff of the CSV is a breaking-change review. Names follow the brief's "Resource naming guidance": no service prefix on resource names, reads of the same rows as one resource routed by the `WHERE` clause, snake_case path parameters (post-process rule 10).
 
 | Operation pattern | StackQL verb | Resource / method |
 |---|---|---|
@@ -130,6 +130,8 @@ make website-start
 ```
 
 `provider-dev/docgen/provider-data/headerContent1.txt` is the landing-page front matter and pitch; `headerContent2.txt` is the getting-started page (installation, scope, authentication, the scoping variable, rate limit, labelling, example queries - lead with the queries the provider exists for). The examples close the file under an `## Example Queries` heading, the same table-of-contents entry on every provider site: one intro sentence under the H2 (so no heading sits directly on another), then one H3 per example with a one-sentence lead-in ending in a colon and one `sql` block. `website/provider.js` carries the site identity; `website/static/CNAME` the hostname; add `website/static/img/stackql-<name>-provider-featured-image.png`, and keep the favicon files at the `static/` root (the shared config links them root-relative). Commit `website/docs` after every regeneration.
+
+The site carries the three StackQL Docusaurus plugins, each at its latest version (`npm view <plugin> version`, then `yarn install` in `website/` to refresh `yarn.lock`): `@stackql/docusaurus-plugin-structured-data` (JSON-LD, through the shared config's `withStructuredData`), `@stackql/docusaurus-plugin-aeo` (`llms.txt`, `llms-full.txt`, Markdown companions, the Ask AI button; its header is `llmsTxtHeader` in `website/provider.js`) and `@stackql/docusaurus-plugin-stackql-deploy-template` (the stackql-deploy template menu beside Ask AI on resource pages), registered after the AEO plugin in `website/docusaurus.config.js`.
 
 `make docs` also passes `--source-project $(SOURCE_PROJECT)`, which adds a `source project` row to the Provider Summary on the landing page linking to this repository. The default is the `stackql-registry/stackql-provider-<name>` convention; a repository hosted elsewhere sets `SOURCE_PROJECT` in the Makefile (or runs `make docs SOURCE_PROJECT=<url>`).
 

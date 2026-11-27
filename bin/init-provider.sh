@@ -46,6 +46,7 @@ FILES=(
   provider-dev/config/provider_config.json
   provider-dev/config/service_names.json
   provider-dev/source-graphql/manifest.yaml
+  views/README.md
   provider-dev/docgen/provider-data/headerContent1.txt
   provider-dev/docgen/provider-data/headerContent2.txt
   tests/offline_validation.mjs
@@ -82,7 +83,8 @@ if [ -f tests/integration/mock_myprovider_server.mjs ]; then
 fi
 
 echo "Rewrote placeholders: myprovider -> ${NAME}, 'My Provider' -> '${TITLE}', MYPROVIDER -> ${UPPER}${API_BASE:+, api.example.com -> ${API_BASE}}"
-echo "Remaining placeholders (expected: none in the file list above):"
-grep -rn --exclude-dir=node_modules --exclude-dir=.git --exclude-dir=.claude -e 'myprovider' -e 'My Provider' -e 'MYPROVIDER' . || echo "  none"
+echo "Remaining placeholders (expected: none outside this script, which names them):"
+grep -rn --exclude-dir=node_modules --exclude-dir=.git --exclude-dir=.claude --exclude=init-provider.sh \
+  -e 'myprovider' -e 'My Provider' -e 'MYPROVIDER' . || echo "  none"
 echo "SOURCE_PROJECT in the Makefile now defaults to https://github.com/stackql-registry/stackql-provider-${SLUG} (the repository link docgen writes into the docs landing page) - change it if the repository lives elsewhere."
 echo "Next: edit provider-dev/scripts/lib/spec_helpers.mjs (SPEC_URL, SPEC_FILE, SCOPE_PREFIX) and provider-dev/config/*.json, then 'make fetch-spec'."

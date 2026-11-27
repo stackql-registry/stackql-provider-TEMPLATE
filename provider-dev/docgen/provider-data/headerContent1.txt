@@ -12,6 +12,7 @@ description: Query, provision and manage My Provider resources using SQL
 custom_edit_url: null
 image: /img/stackql-myprovider-provider-featured-image.png
 id: 'provider-intro'
+softwareApplication: true
 ---
 
 import CopyableCode from '@site/src/components/CopyableCode/CopyableCode';

@@ -259,21 +259,6 @@ div:has(> .vhsImage) {
   }
 
 /*
-* breadcrumbs with actions (stackql-deploy dropdown)
-*/
-.breadcrumbs-with-actions {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  flex-wrap: nowrap;
-}
-
-.breadcrumbs-with-actions nav {
-  flex: 1;
-  min-width: 0;
-}
-
-/*
 * registry logo: swap to the narrower -mobile mark below the Docusaurus
 * mobile breakpoint (996px), per theme
 */
